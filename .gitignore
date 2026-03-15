@@ -1,0 +1,15 @@
+# Klasörleri görmezden gel
+venv/
+.vscode/
+.idea/
+__pycache__/
+data/raw/
+data/cleaned/
+
+# Dosyaları görmezden gel
+*.pyc
+*.pyo
+*.pyd
+*.log
+.DS_Store
+Thumbs.db
