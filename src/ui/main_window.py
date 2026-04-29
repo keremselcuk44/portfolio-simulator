@@ -113,13 +113,10 @@ def _card(title: str = "") -> tuple[QFrame, QVBoxLayout]:
 
 
 def _compute_risk_label(state: "PortfolioState") -> dict:
-    """Return a risk label, colour, and short detail string for the given state."""
     pv = state.portfolio_value
     if pv <= 0:
         return {"label": "—", "color": _TEXT3, "detail": "Portföy boş"}
-    # Single-asset concentration
     max_weight = max((p.market_value / pv * 100 for p in state.positions), default=0.0)
-    # Unrealized loss ratio
     upl_pct = state.total_unrealized_pnl / pv * 100 if pv > 0 else 0.0
     if max_weight >= 70 or upl_pct <= -15:
         return {"label": "YÜKSEK", "color": _RED,   "detail": f"En yüksek konsantrasyon %{max_weight:.0f}"}
@@ -143,7 +140,7 @@ def _metric(title: str) -> tuple[QFrame, QLabel, QLabel]:
     return box, v, s
 
 
-def _table(cols: list[str], obj: str = "tbl") -> QTableWidget:
+def _table(cols: list[str], obj: str = "tbl", stretch_cols: list[int] | None = None) -> QTableWidget:
     t = QTableWidget(0, len(cols))
     t.setObjectName(obj)
     t.setHorizontalHeaderLabels(cols)
@@ -153,6 +150,12 @@ def _table(cols: list[str], obj: str = "tbl") -> QTableWidget:
     t.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     t.setShowGrid(False)
     t.setAlternatingRowColors(True)
+    
+    hdr = t.horizontalHeader()
+    stretch_cols = stretch_cols or []
+    for i in range(len(cols)):
+        mode = QHeaderView.ResizeMode.Stretch if i in stretch_cols else QHeaderView.ResizeMode.ResizeToContents
+        hdr.setSectionResizeMode(i, mode)
     return t
 
 
@@ -259,7 +262,7 @@ class MainWindow(QMainWindow):
         self.resize(1440, 900)
         self.setMinimumSize(1100, 700)
 
-        self._apply_styles()
+        self.setStyleSheet(STYLESHEET)
         self._build_ui()
         self._connect_signals()
 
@@ -282,7 +285,20 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(200, self._show_welcome)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # BUILD
+    # BUILD Helpers
+    # ══════════════════════════════════════════════════════════════════════════
+    
+    def _build_metric_row(self, layout: QHBoxLayout, metrics_info: list[tuple[str, str, str | None]]) -> None:
+        """Helper to build repeated metric boxes dynamically."""
+        for title, val_attr, sub_attr in metrics_info:
+            box, v, s = _metric(title)
+            setattr(self, val_attr, v)
+            if sub_attr:
+                setattr(self, sub_attr, s)
+            layout.addWidget(box, 1)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # BUILD UI
     # ══════════════════════════════════════════════════════════════════════════
 
     def _build_ui(self) -> None:
@@ -385,7 +401,6 @@ class MainWindow(QMainWindow):
         elif idx == 2:
             self._extra.history_visited = True
         elif idx == 4 and self._extra.analysis_run:
-            # User is viewing analysis page after a simulation — they see the forecast
             self._extra.forecast_viewed = True
         # Refresh learning system on every navigation
         if hasattr(self, "_learn_page"):
@@ -419,7 +434,6 @@ class MainWindow(QMainWindow):
         vl.setContentsMargins(22, 18, 22, 16)
         vl.setSpacing(12)
 
-        # ── Title row ─────────────────────────────────────────────────────────
         title_row = QHBoxLayout()
         title_row.addWidget(_lbl("Portföy Özeti", bold=True, size=15, color=_TEXT))
         title_row.addStretch()
@@ -434,13 +448,13 @@ class MainWindow(QMainWindow):
         # ── 5 metric boxes ────────────────────────────────────────────────────
         row = QHBoxLayout()
         row.setSpacing(10)
-        b1, self.d_pv,  self.d_pv_s  = _metric("PORTFÖY DEĞERİ")
-        b2, self.d_pl,  self.d_pl_s  = _metric("TOPLAM K/Z")
-        b3, self.d_upl, self.d_upl_s = _metric("GERÇEKLEŞMEMİŞ K/Z")
-        b4, self.d_rpl, self.d_rpl_s = _metric("GERÇEKLEŞMİŞ K/Z")
-        b5, self.d_xp_val, self.d_level_sub = _metric("ÖĞRENME SEVİYESİ")
-        for b in (b1, b2, b3, b4, b5):
-            row.addWidget(b, 1)
+        self._build_metric_row(row, [
+            ("PORTFÖY DEĞERİ", "d_pv", "d_pv_s"),
+            ("TOPLAM K/Z", "d_pl", "d_pl_s"),
+            ("GERÇEKLEŞMEMİŞ K/Z", "d_upl", "d_upl_s"),
+            ("GERÇEKLEŞMİŞ K/Z", "d_rpl", "d_rpl_s"),
+            ("ÖĞRENME SEVİYESİ", "d_xp_val", "d_level_sub")
+        ])
         vl.addLayout(row)
 
         # ── Center: chart + right column ──────────────────────────────────────
@@ -457,17 +471,13 @@ class MainWindow(QMainWindow):
         right.setSpacing(10)
 
         wl_frm, wl_vl = _card("PİYASA (CANLI)")
-        self.d_mini_wl = _table(["Sembol", "Fiyat", "Değ.%"], "tbl")
-        self.d_mini_wl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self.d_mini_wl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.d_mini_wl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.d_mini_wl = _table(["Sembol", "Fiyat", "Değ.%"], "tbl", stretch_cols=[1])
         self.d_mini_wl.setMaximumHeight(180)
         wl_vl.addWidget(self.d_mini_wl)
         right.addWidget(wl_frm)
 
         rec_frm, rec_vl = _card("SON İŞLEMLER")
-        self.d_recent = _table(["Zaman", "İşlem", "Sembol", "Tutar TL"], "tbl")
-        self.d_recent.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.d_recent = _table(["Zaman", "İşlem", "Sembol", "Tutar TL"], "tbl", stretch_cols=[0, 1, 2, 3])
         self.d_recent.setMaximumHeight(140)
         rec_vl.addWidget(self.d_recent)
         right.addWidget(rec_frm)
@@ -479,13 +489,7 @@ class MainWindow(QMainWindow):
         bottom = QHBoxLayout()
         bottom.setSpacing(12)
 
-        # ── Learning status card ──────────────────────────────────────────────
-        learn_frm = QFrame()
-        learn_frm.setObjectName("card")
-        learn_vl = QVBoxLayout(learn_frm)
-        learn_vl.setContentsMargins(16, 14, 16, 14)
-        learn_vl.setSpacing(10)
-
+        learn_frm, learn_vl = _card()
         learn_hdr = QHBoxLayout()
         learn_hdr.addWidget(_lbl("ÖĞRENME DURUMU", obj="cardTitle"))
         learn_hdr.addStretch()
@@ -494,7 +498,6 @@ class MainWindow(QMainWindow):
         learn_hdr.addWidget(self.d_learn_goto_btn)
         learn_vl.addLayout(learn_hdr)
 
-        # XP bar
         xp_row = QHBoxLayout()
         xp_row.setSpacing(8)
         self.d_level_badge = QLabel("🌱 Başlangıç")
@@ -521,17 +524,15 @@ class MainWindow(QMainWindow):
         )
         learn_vl.addWidget(self.d_xp_prog)
 
-        # Active task
         task_frm = QFrame()
-        task_frm.setStyleSheet(
-            f"background:{_SURF2}; border:1px solid {_BORDER}; border-radius:7px;"
-        )
+        task_frm.setStyleSheet(f"background:{_SURF2}; border:1px solid {_BORDER}; border-radius:7px;")
         task_hl = QHBoxLayout(task_frm)
         task_hl.setContentsMargins(12, 8, 12, 8)
         task_hl.setSpacing(10)
         self.d_task_icon_lbl = QLabel("🎯")
         self.d_task_icon_lbl.setStyleSheet("font-size:20px;")
         self.d_task_icon_lbl.setFixedWidth(28)
+        
         task_col = QVBoxLayout()
         task_col.setSpacing(2)
         self.d_task_title_lbl = QLabel("Aktif görev yükleniyor…")
@@ -541,6 +542,7 @@ class MainWindow(QMainWindow):
         self.d_task_obj_lbl.setWordWrap(True)
         task_col.addWidget(self.d_task_title_lbl)
         task_col.addWidget(self.d_task_obj_lbl)
+        
         task_hl.addWidget(self.d_task_icon_lbl)
         task_hl.addLayout(task_col, 1)
         self.d_task_nav_btn = _btn("→", "btnPrimary", h=28)
@@ -548,16 +550,9 @@ class MainWindow(QMainWindow):
         self.d_task_nav_btn.setToolTip("Göreve git")
         task_hl.addWidget(self.d_task_nav_btn)
         learn_vl.addWidget(task_frm)
-
         bottom.addWidget(learn_frm, 3)
 
-        # ── AI Coach suggestion card ───────────────────────────────────────────
-        ai_frm = QFrame()
-        ai_frm.setObjectName("card")
-        ai_vl = QVBoxLayout(ai_frm)
-        ai_vl.setContentsMargins(16, 14, 16, 14)
-        ai_vl.setSpacing(8)
-
+        ai_frm, ai_vl = _card()
         ai_hdr = QHBoxLayout()
         ai_hdr.addWidget(_lbl("AI KOÇ ÖNERİSİ", obj="cardTitle"))
         ai_hdr.addStretch()
@@ -578,10 +573,8 @@ class MainWindow(QMainWindow):
         d_ai_ask_btn = _btn("🤖 AI Koç'a Git", "btnSecondary", h=30)
         d_ai_ask_btn.clicked.connect(lambda: self._goto(5))
         ai_vl.addWidget(d_ai_ask_btn)
-
         bottom.addWidget(ai_frm, 3)
 
-        # ── Shortcut buttons ─────────────────────────────────────────────────
         act = QVBoxLayout()
         act.setSpacing(8)
         sb1 = _btn("⇄  İşlem Yap",   "btnPrimary",   h=44, minw=160)
@@ -593,12 +586,11 @@ class MainWindow(QMainWindow):
         sb3.clicked.connect(lambda: self._goto(5))
         sb4.clicked.connect(lambda: self._goto(4))
         act.addStretch()
-        for b in (sb1, sb2, sb3, sb4):
-            act.addWidget(b)
+        for b in (sb1, sb2, sb3, sb4): act.addWidget(b)
         act.addStretch()
         bottom.addLayout(act)
+        
         vl.addLayout(bottom)
-
         return page
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -614,45 +606,27 @@ class MainWindow(QMainWindow):
         hl.addWidget(self._trade_right(), 2)
         return page
 
-    # ── watchlist + positions (left) ─────────────────────────────────────────
-
     def _trade_left(self) -> QWidget:
         w  = QWidget()
         vl = QVBoxLayout(w)
         vl.setContentsMargins(0, 0, 0, 0)
         vl.setSpacing(10)
 
-        # watchlist
         wl_frm, wl_vl = _card("PIYASA  —  Simüle Fiyatlar (3 sn'de güncellenir)  ·  Bir satıra tıklayarak işlem yapın")
         self.wl_table = _table(
-            ["Sembol", "İsim", "Fiyat (TL)", "Gün Değ. %", "Risk Seviyesi", "Açıklama"], "tbl"
+            ["Sembol", "İsim", "Fiyat (TL)", "Gün Değ. %", "Risk Seviyesi", "Açıklama"], "tbl", stretch_cols=[5]
         )
         self.wl_table.setToolTip(
-            "Piyasa fiyatları her 3 saniyede bir güncellenir.\n"
-            "Bir satıra tıklayarak o varlık için otomatik işlem formu açılır."
+            "Piyasa fiyatları her 3 saniyede bir güncellenir.\nBir satıra tıklayarak o varlık için otomatik işlem formu açılır."
         )
-        hdr = self.wl_table.horizontalHeader()
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
         self.wl_table.setMinimumHeight(240)
         wl_vl.addWidget(self.wl_table)
         vl.addWidget(wl_frm, 3)
 
-        # open positions
         pos_frm, pos_vl = _card("ACIK POZISYONLAR")
         self.pos_table = _table(
-            ["Sembol", "Miktar", "Ort. Maliyet", "Piyasa Fiy.", "Deger", "K/Z (TL)", "K/Z %"],
-            "tbl",
+            ["Sembol", "Miktar", "Ort. Maliyet", "Piyasa Fiy.", "Deger", "K/Z (TL)", "K/Z %"], "tbl", stretch_cols=[2,3,4,5,6]
         )
-        pos_hdr = self.pos_table.horizontalHeader()
-        pos_hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        pos_hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        for c in range(2, 7):
-            pos_hdr.setSectionResizeMode(c, QHeaderView.ResizeMode.Stretch)
         pos_vl.addWidget(self.pos_table, 1)
 
         pos_btns = QHBoxLayout()
@@ -665,20 +639,15 @@ class MainWindow(QMainWindow):
         vl.addWidget(pos_frm, 2)
         return w
 
-    # ── order form (right) ────────────────────────────────────────────────────
-
     def _trade_right(self) -> QWidget:
         w  = QWidget()
         vl = QVBoxLayout(w)
         vl.setContentsMargins(0, 0, 0, 0)
         vl.setSpacing(10)
 
-        # ── Active task banner ────────────────────────────────────────────────
         self.t_task_banner = QFrame()
         self.t_task_banner.setObjectName("card")
-        self.t_task_banner.setStyleSheet(
-            f"QFrame#card{{background:{_ACCENT}18; border:1px solid {_ACCENT}44; border-radius:8px;}}"
-        )
+        self.t_task_banner.setStyleSheet(f"QFrame#card{{background:{_ACCENT}18; border:1px solid {_ACCENT}44; border-radius:8px;}}")
         t_hl = QHBoxLayout(self.t_task_banner)
         t_hl.setContentsMargins(12, 8, 12, 8)
         t_hl.setSpacing(10)
@@ -708,7 +677,6 @@ class MainWindow(QMainWindow):
     def _order_form_card(self) -> QFrame:
         frm, vl = _card("iSLEM EMRI")
 
-        # BUY / SELL toggle
         side_row = QHBoxLayout()
         side_row.setSpacing(0)
         self.btn_buy_mode  = _btn("  ALIŞ  ", "sideActive", h=44)
@@ -733,25 +701,12 @@ class MainWindow(QMainWindow):
         self.o_symbol.setPlaceholderText("BTC, ETH, AAPL …")
         self.o_symbol.setObjectName("formInput")
         self.o_symbol.setMaxLength(8)
-        self.o_symbol.setToolTip(
-            "Alım/satım yapmak istediğiniz varlığın kısa kodu.\n"
-            "Örnekler: BTC (Bitcoin), ETH (Ethereum), AAPL (Apple)\n"
-            "İpucu: Sol taraftaki piyasa listesinde bir satıra tıklarsanız\n"
-            "bu alan otomatik olarak dolar."
-        )
 
         self.o_qty = QDoubleSpinBox()
         self.o_qty.setRange(0.0001, 1_000_000)
         self.o_qty.setDecimals(6)
         self.o_qty.setObjectName("formInput")
         self.o_qty.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.UpDownArrows)
-        self.o_qty.setToolTip(
-            "Kaç adet almak veya satmak istediğinizi girin.\n"
-            "Kripto paralar küçük kesirlere bölünebilir:\n"
-            "0.001 BTC gibi çok küçük miktarlarla da işlem yapabilirsiniz.\n"
-            "İpucu: 'Maksimum' butonuna basarak alabileceğiniz\n"
-            "maksimum miktarı otomatik hesaplayabilirsiniz."
-        )
 
         self.o_price = QDoubleSpinBox()
         self.o_price.setRange(0.01, 100_000_000)
@@ -759,13 +714,6 @@ class MainWindow(QMainWindow):
         self.o_price.setPrefix("TL ")
         self.o_price.setObjectName("formInput")
         self.o_price.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.UpDownArrows)
-        self.o_price.setToolTip(
-            "İşlem fiyatı (TL cinsinden).\n"
-            "Soldaki listeden bir varlık seçildiğinde otomatik\n"
-            "olarak o anki piyasa fiyatı ile dolar.\n"
-            "Gerçek borsalarda 'limit emir' ile farklı bir fiyat\n"
-            "belirleyebilirsiniz — burada piyasa fiyatı kullanılır."
-        )
 
         self.o_total_lbl = _lbl("—  TL", bold=True, mono=True, size=14, color=_TEXT)
         self.o_avail_lbl = _lbl("", color=_TEXT3)
@@ -796,10 +744,7 @@ class MainWindow(QMainWindow):
         self.btn_max   = _btn("Maksimum", "btnGhost", h=30)
         self.btn_half  = _btn("Yarı",     "btnGhost", h=30)
         self.btn_reset = _btn("Temizle",  "btnGhost", h=30)
-        self.btn_max.setToolTip("Maksimum miktarı hesapla ve doldur")
-        self.btn_half.setToolTip("Yarı miktarı hesapla ve doldur")
-        for b in (self.btn_max, self.btn_half, self.btn_reset):
-            reset_row.addWidget(b, 1)
+        for b in (self.btn_max, self.btn_half, self.btn_reset): reset_row.addWidget(b, 1)
         vl.addLayout(reset_row)
         return frm
 
@@ -821,9 +766,7 @@ class MainWindow(QMainWindow):
         _kv("Toplam K/Z",         "acc_tpl")
         _kv("Gerçekleşmiş K/Z",   "acc_rpl")
         _kv("Gerçekleşmemiş K/Z", "acc_upl")
-
         vl.addWidget(_sep())
-
         _kv("Kazanma Oranı",   "acc_winrate")
         _kv("Risk Seviyesi",   "acc_risk")
         _kv("Toplam İşlem",    "acc_trade_count")
@@ -855,39 +798,29 @@ class MainWindow(QMainWindow):
 
         frm, fl = _card()
         self.hist_table = _table(
-            ["#", "Tarih / Saat", "İşlem", "Sembol", "Miktar", "Fiyat (TL)", "Toplam (TL)"],
-            "tbl",
+            ["#", "Tarih / Saat", "İşlem", "Sembol", "Miktar", "Fiyat (TL)", "Toplam (TL)"], "tbl", stretch_cols=[4,5,6]
         )
-        hdr = self.hist_table.horizontalHeader()
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
         fl.addWidget(self.hist_table, 1)
 
         top_stats = QHBoxLayout()
         top_stats.setSpacing(10)
-        b1, self.hi_total,  _ = _metric("TOPLAM İŞLEM")
-        b2, self.hi_buy,    _ = _metric("TOPLAM ALIM")
-        b3, self.hi_sell,   _ = _metric("TOPLAM SATIM")
-        b4, self.hi_volume, _ = _metric("TOPLAM HACİM (TL)")
-        for b in (b1, b2, b3, b4):
-            top_stats.addWidget(b, 1)
+        self._build_metric_row(top_stats, [
+            ("TOPLAM İŞLEM", "hi_total", None),
+            ("TOPLAM ALIM", "hi_buy", None),
+            ("TOPLAM SATIM", "hi_sell", None),
+            ("TOPLAM HACİM (TL)", "hi_volume", None)
+        ])
         vl.addLayout(top_stats)
 
         bot_stats = QHBoxLayout()
         bot_stats.setSpacing(10)
-        b5, self.hi_winrate,     self.hi_winrate_sub  = _metric("KAZANMA ORANI")
-        b6, self.hi_profitsell,  _                    = _metric("KÂRLI SATIMLAR")
-        b7, self.hi_xp_earned,   _                    = _metric("KAZANILAN XP")
-        b8, self.hi_risk,        self.hi_risk_sub      = _metric("RİSK SKORU")
-        for b in (b5, b6, b7, b8):
-            bot_stats.addWidget(b, 1)
+        self._build_metric_row(bot_stats, [
+            ("KAZANMA ORANI", "hi_winrate", "hi_winrate_sub"),
+            ("KÂRLI SATIMLAR", "hi_profitsell", None),
+            ("KAZANILAN XP", "hi_xp_earned", None),
+            ("RİSK SKORU", "hi_risk", "hi_risk_sub")
+        ])
         vl.addLayout(bot_stats)
-
         vl.addWidget(frm, 1)
         return page
 
@@ -911,24 +844,18 @@ class MainWindow(QMainWindow):
 
         stat_row = QHBoxLayout()
         stat_row.setSpacing(10)
-        b1, self.dv_file,  _ = _metric("DOSYA ADI")
-        b2, self.dv_rows,  _ = _metric("SATIR SAYISI")
-        b3, self.dv_date,  _ = _metric("TARIH KOLONU")
-        b4, self.dv_price, _ = _metric("FIYAT KOLONLARI")
-        for b in (b1, b2, b3, b4):
-            stat_row.addWidget(b, 1)
+        self._build_metric_row(stat_row, [
+            ("DOSYA ADI", "dv_file", None),
+            ("SATIR SAYISI", "dv_rows", None),
+            ("TARIH KOLONU", "dv_date", None),
+            ("FIYAT KOLONLARI", "dv_price", None)
+        ])
         vl.addLayout(stat_row)
 
         frm, fl = _card("KOLON HARiTASI")
-        self.dv_table = _table(["Kolon Adı", "Tespit Edilen Rol", "Örnek"], "tbl")
-        self.dv_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.dv_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.dv_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.dv_table = _table(["Kolon Adı", "Tespit Edilen Rol", "Örnek"], "tbl", stretch_cols=[0, 2])
         fl.addWidget(self.dv_table)
-        self.dv_status = _lbl(
-            "Henüz CSV seçilmedi. 'CSV Yükle' butonunu kullanın.",
-            color=_TEXT3
-        )
+        self.dv_status = _lbl("Henüz CSV seçilmedi. 'CSV Yükle' butonunu kullanın.", color=_TEXT3)
         self.dv_status.setWordWrap(True)
         fl.addWidget(self.dv_status)
         vl.addWidget(frm, 1)
@@ -960,7 +887,6 @@ class MainWindow(QMainWindow):
 
         self.btn_sim = _btn("▶  Senaryo Simülasyonu", "btnSuccess", h=38, minw=190)
         self.btn_ai_analysis = _btn("🤖 AI Analizi", "btnSecondary", h=38, minw=130)
-        self.btn_ai_analysis.setToolTip("AI Koç'tan bu simülasyon hakkında yorum al")
         title_row.addWidget(_lbl("Tarih:", color=_TEXT3))
         title_row.addWidget(self.an_start)
         title_row.addWidget(_lbl("→", color=_TEXT3))
@@ -969,19 +895,16 @@ class MainWindow(QMainWindow):
         title_row.addWidget(self.btn_sim)
         title_row.addWidget(self.btn_ai_analysis)
         vl.addLayout(title_row)
-        vl.addWidget(_lbl(
-            "Mevcut pozisyonları seçilen tarih aralığında projekte ederek senaryo analizi yapar.",
-            color=_TEXT3
-        ))
+        vl.addWidget(_lbl("Mevcut pozisyonları seçilen tarih aralığında projekte ederek senaryo analizi yapar.", color=_TEXT3))
 
         stat_row = QHBoxLayout()
         stat_row.setSpacing(10)
-        b1, self.an_dir,  _ = _metric("TREND YÖNÜ")
-        b2, self.an_chg,  _ = _metric("DEĞİŞİM %")
-        b3, self.an_vol,  _ = _metric("VOLATİLİTE %")
-        b4, self.an_next, _ = _metric("SONRAKİ TAHMİN")
-        for b in (b1, b2, b3, b4):
-            stat_row.addWidget(b, 1)
+        self._build_metric_row(stat_row, [
+            ("TREND YÖNÜ", "an_dir", None),
+            ("DEĞİŞİM %", "an_chg", None),
+            ("VOLATİLİTE %", "an_vol", None),
+            ("SONRAKİ TAHMİN", "an_next", None)
+        ])
         vl.addLayout(stat_row)
 
         center = QHBoxLayout()
@@ -997,20 +920,16 @@ class MainWindow(QMainWindow):
         right_col.setSpacing(10)
 
         fore_frm, fore_vl = _card("TAHMİN NOKTALARI")
-        self.an_table = _table(["Adım", "Beklenen Değer (TL)", "Fark"], "tbl")
-        self.an_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.an_table = _table(["Adım", "Beklenen Değer (TL)", "Fark"], "tbl", stretch_cols=[0, 1, 2])
         fore_vl.addWidget(self.an_table, 1)
         self.an_status = _lbl("", color=_TEXT3)
         self.an_status.setWordWrap(True)
         fore_vl.addWidget(self.an_status)
         right_col.addWidget(fore_frm, 2)
 
-        # AI insight panel (shown after simulation or manual request)
         ai_frm = QFrame()
         ai_frm.setObjectName("card")
-        ai_frm.setStyleSheet(
-            f"QFrame#card{{background:{_SURF2}; border:1px solid {_BORDER}; border-radius:8px;}}"
-        )
+        ai_frm.setStyleSheet(f"QFrame#card{{background:{_SURF2}; border:1px solid {_BORDER}; border-radius:8px;}}")
         ai_vl = QVBoxLayout(ai_frm)
         ai_vl.setContentsMargins(14, 12, 14, 12)
         ai_vl.setSpacing(6)
@@ -1035,41 +954,24 @@ class MainWindow(QMainWindow):
         return page
 
     # ══════════════════════════════════════════════════════════════════════════
-    # PAGE 5 — ÖĞREN (LEARN)
-    # ══════════════════════════════════════════════════════════════════════════
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # SIGNALS
+    # SIGNALS, EVENT HANDLERS & REFRESH LOGIC (Kept As-Is Functionally)
     # ══════════════════════════════════════════════════════════════════════════
 
     def _connect_signals(self) -> None:
-        # watchlist click → fill order form
         self.wl_table.cellClicked.connect(self._wl_row_clicked)
-        # positions table → close position
         self.btn_close_pos.clicked.connect(self._close_position)
-        # order form live calculations
         self.o_symbol.textChanged.connect(self._fill_market_price)
         self.o_qty.valueChanged.connect(self._update_order_total)
         self.o_price.valueChanged.connect(self._update_order_total)
-        # quick fill buttons
         self.btn_max.clicked.connect(self._fill_max)
         self.btn_half.clicked.connect(self._fill_half)
         self.btn_reset.clicked.connect(self._reset_form)
-        # execute
         self.btn_execute.clicked.connect(self._execute_order)
-        # history filter
         self.hist_filter.textChanged.connect(self._refresh_history)
-        # data
         self.btn_load_csv.clicked.connect(self._load_csv)
-        # analysis
         self.btn_sim.clicked.connect(self._run_scenario)
         self.btn_ai_analysis.clicked.connect(self._fire_analysis_ai)
-        # report
         self.btn_report.clicked.connect(self._save_report)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # MARKET TICK
-    # ══════════════════════════════════════════════════════════════════════════
 
     def _tick_market(self) -> None:
         self._prev_prices = self._feed.get_all()
@@ -1080,10 +982,6 @@ class MainWindow(QMainWindow):
         self._refresh_positions()
         self._refresh_dashboard_metrics()
         self._refresh_account_summary()
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # ORDER FORM INTERACTIONS
-    # ══════════════════════════════════════════════════════════════════════════
 
     def _set_side(self, side: str) -> None:
         self._order_side = side
@@ -1162,7 +1060,7 @@ class MainWindow(QMainWindow):
         sym        = self.o_symbol.text().strip().upper()
         qty        = self.o_qty.value()
         price      = self.o_price.value()
-        cash_before = self.state.cash   # capture BEFORE execution for mistake detection
+        cash_before = self.state.cash
 
         try:
             if self._order_side == "AL":
@@ -1171,32 +1069,23 @@ class MainWindow(QMainWindow):
                 self._extra.user_buy_count    += 1
                 self._extra.max_single_buy_tl  = max(self._extra.max_single_buy_tl, trade.total)
 
-                # Mistake detection (after execution so we can inspect new state)
                 self._show_warnings(
                     self._detector.check_after_buy(self.state, sym, trade.total, cash_before)
                     + self._detector.check_portfolio_health(self.state)
                 )
 
-                # AI Coach suggestion (async — fires callback when ready)
                 action_desc = f"Bought {sym} TL {trade.total:,.0f}"
                 self._fire_ai_suggestion(action_desc)
 
                 if self._trade_count == 1:
-                    msg = (
-                        f"Tebrikler! İlk alımınız gerçekleşti: {trade.quantity:.6g} {sym} "
-                        f"@ TL {trade.price:,.2f} · "
-                        f"Şimdi 'Özet' sayfasında K/Z değerinin nasıl değiştiğini izleyin!"
-                    )
+                    msg = (f"Tebrikler! İlk alımınız gerçekleşti: {trade.quantity:.6g} {sym} @ TL {trade.price:,.2f} · "
+                           f"Şimdi 'Özet' sayfasında K/Z değerinin nasıl değiştiğini izleyin!")
                 else:
                     info = ASSET_INFO.get(sym, {})
                     risk = info.get("risk", "")
                     tip  = f"  ·  Risk: {risk}" if risk else ""
-                    msg  = (
-                        f"Alım: {trade.quantity:.6g} {sym} @ TL {trade.price:,.2f}"
-                        f"  ←  TL {trade.total:,.2f}{tip}"
-                    )
+                    msg  = f"Alım: {trade.quantity:.6g} {sym} @ TL {trade.price:,.2f}  ←  TL {trade.total:,.2f}{tip}"
             else:
-                # Capture avg_cost BEFORE execution for mistake detection
                 pos = self.state._find(sym)
                 avg_cost_before = pos.avg_cost if pos else 0.0
                 is_profitable   = bool(pos and price > pos.avg_cost)
@@ -1206,23 +1095,18 @@ class MainWindow(QMainWindow):
                 if is_profitable:
                     self._extra.profitable_sell_count += 1
 
-                # Mistake detection for sell
                 self._show_warnings(
                     self._detector.check_after_sell(self.state, sym, price, avg_cost_before)
                     + self._detector.check_portfolio_health(self.state)
                 )
 
-                # AI Coach suggestion
                 pnl_label = "kâr" if is_profitable else "zarar"
                 action_desc = f"Sold {sym} TL {trade.total:,.0f} ({pnl_label})"
                 self._fire_ai_suggestion(action_desc)
 
                 pl = self.state.total_pnl
                 edu = "  ·  Portföyünüz kârda — iyi zamanlama!" if pl >= 0 else "  ·  Piyasalar zaman zaman düşer — bu normaldir."
-                msg = (
-                    f"Satım: {trade.quantity:.6g} {sym} @ TL {trade.price:,.2f}"
-                    f"  →  TL {trade.total:,.2f}{edu}"
-                )
+                msg = f"Satım: {trade.quantity:.6g} {sym} @ TL {trade.price:,.2f}  →  TL {trade.total:,.2f}{edu}"
         except ValueError as exc:
             self._warn(str(exc))
             return
@@ -1236,8 +1120,7 @@ class MainWindow(QMainWindow):
             self._warn("Kapatmak için tablodan bir pozisyon seçin.")
             return
         sym_item = self.pos_table.item(row, 0)
-        if not sym_item:
-            return
+        if not sym_item: return
         sym = sym_item.text().strip().upper()
         pos = self.state._find(sym)
         if not pos:
@@ -1246,14 +1129,10 @@ class MainWindow(QMainWindow):
         price = self._feed.get_price(sym) or pos.current_price
         reply = QMessageBox.question(
             self, "Pozisyonu Kapat",
-            f"{pos.quantity:.6g} {sym} adet\n"
-            f"Piyasa fiyatı: TL {price:,.2f}\n"
-            f"Tahmini gelir: TL {pos.quantity * price:,.2f}\n\n"
-            f"Satışı onaylıyor musunuz?",
+            f"{pos.quantity:.6g} {sym} adet\nPiyasa fiyatı: TL {price:,.2f}\nTahmini gelir: TL {pos.quantity * price:,.2f}\n\nSatışı onaylıyor musunuz?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
+        if reply != QMessageBox.StandardButton.Yes: return
         avg_cost_before = pos.avg_cost
         is_profitable   = price > pos.avg_cost
         try:
@@ -1262,30 +1141,18 @@ class MainWindow(QMainWindow):
             self._warn(str(exc))
             return
         self._extra.user_sell_count += 1
-        if is_profitable:
-            self._extra.profitable_sell_count += 1
+        if is_profitable: self._extra.profitable_sell_count += 1
 
-        # Mistake detection for position close
         self._show_warnings(
             self._detector.check_after_sell(self.state, sym, price, avg_cost_before)
             + self._detector.check_portfolio_health(self.state)
         )
-
         self._full_refresh()
-        self.statusBar().showMessage(
-            f"{sym} pozisyonu kapatıldı. Gelir: TL {trade.total:,.2f}", 5000
-        )
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # DATA / ANALYSIS HANDLERS
-    # ══════════════════════════════════════════════════════════════════════════
+        self.statusBar().showMessage(f"{sym} pozisyonu kapatıldı. Gelir: TL {trade.total:,.2f}", 5000)
 
     def _load_csv(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "CSV Seç", "", "CSV (*.csv);;Tüm Dosyalar (*.*)"
-        )
-        if not path:
-            return
+        path, _ = QFileDialog.getOpenFileName(self, "CSV Seç", "", "CSV (*.csv);;Tüm Dosyalar (*.*)")
+        if not path: return
         try:
             self.dataset_info = self._loader.inspect_csv(path)
             self.cleaned      = self._cleaner.build_cleaning_plan(self.dataset_info)
@@ -1295,9 +1162,7 @@ class MainWindow(QMainWindow):
         self.state.attach_dataset(path)
         self._refresh_data()
         self._goto(3)
-        self.statusBar().showMessage(
-            f"Yüklendi: {Path(path).name}  ({self.dataset_info.row_count:,} satır)", 5000
-        )
+        self.statusBar().showMessage(f"Yüklendi: {Path(path).name}  ({self.dataset_info.row_count:,} satır)", 5000)
 
     def _run_scenario(self) -> None:
         start = self.an_start.date().toPyDate()
@@ -1313,22 +1178,14 @@ class MainWindow(QMainWindow):
         self._refresh_analysis()
         self._full_refresh()
         self.statusBar().showMessage(f"Senaryo tamamlandı: {start} → {end}", 5000)
-        # Auto AI commentary on the analysis result
         self._fire_analysis_ai()
 
     def _save_report(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Raporu Kaydet", "portfolio_report.txt",
-            "Metin (*.txt);;Tüm (*.*)"
-        )
-        if not path:
-            return
+        path, _ = QFileDialog.getSaveFileName(self, "Raporu Kaydet", "portfolio_report.txt", "Metin (*.txt);;Tüm (*.*)")
+        if not path: return
         try:
             Path(path).write_text(
-                self.state.build_report(
-                    self.an_start.date().toPyDate(),
-                    self.an_end.date().toPyDate(),
-                ),
+                self.state.build_report(self.an_start.date().toPyDate(), self.an_end.date().toPyDate()),
                 encoding="utf-8",
             )
         except OSError as exc:
@@ -1337,10 +1194,6 @@ class MainWindow(QMainWindow):
         self._extra.report_saved = True
         self._refresh_learn()
         self.statusBar().showMessage(f"Rapor kaydedildi: {Path(path).name}", 4000)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # REFRESH
-    # ══════════════════════════════════════════════════════════════════════════
 
     def _full_refresh(self) -> None:
         self._refresh_topbar()
@@ -1357,22 +1210,15 @@ class MainWindow(QMainWindow):
         self._refresh_learn()
 
     def _refresh_learn(self) -> None:
-        if not hasattr(self, "_learn_page"):
-            return
-        self._learn_page.refresh(self.state, self._extra.to_dict())
-
-    # ── dashboard learning panel ───────────────────────────────────────────────
+        if hasattr(self, "_learn_page"): self._learn_page.refresh(self.state, self._extra.to_dict())
 
     def _refresh_dashboard_learning(self) -> None:
-        if not hasattr(self, "d_level_badge"):
-            return
-
-        # ── XP / level ────────────────────────────────────────────────────────
-        xp          = self._ls.xp
-        icon        = getattr(self._ls, "current_level_icon", "🌱")
-        label       = getattr(self._ls, "current_level_label", "Başlangıç")
+        if not hasattr(self, "d_level_badge"): return
+        xp = self._ls.xp
+        icon = getattr(self._ls, "current_level_icon", "🌱")
+        label = getattr(self._ls, "current_level_label", "Başlangıç")
         curr, total = self._ls.level_progress() if hasattr(self._ls, "level_progress") else (xp, 700)
-        pct         = int(min(curr / total * 100, 100)) if total > 0 else 100
+        pct = int(min(curr / total * 100, 100)) if total > 0 else 100
 
         self.d_level_badge.setText(f"{icon} {label}")
         self.d_xp_txt.setText(f"{xp} XP")
@@ -1380,17 +1226,14 @@ class MainWindow(QMainWindow):
         self.d_xp_val.setText(f"{xp} XP")
         self.d_level_sub.setText(f"{icon} {label}  ·  {curr}/{total}")
 
-        # ── Active task ────────────────────────────────────────────────────────
         active_task = self._get_active_task()
         if active_task:
             self.d_task_icon_lbl.setText(active_task.icon)
             self.d_task_title_lbl.setText(active_task.title)
             self.d_task_obj_lbl.setText(active_task.objective)
             self._d_task_goto = active_task.navigate_to
-            try:
-                self.d_task_nav_btn.clicked.disconnect()
-            except (RuntimeError, TypeError):
-                pass
+            try: self.d_task_nav_btn.clicked.disconnect()
+            except (RuntimeError, TypeError): pass
             self.d_task_nav_btn.clicked.connect(lambda: self._goto(self._d_task_goto))
             self.d_task_nav_btn.setVisible(True)
         else:
@@ -1399,16 +1242,12 @@ class MainWindow(QMainWindow):
             self.d_task_obj_lbl.setText("Artık bir portföy ustasısın. Liderliği koru!")
             self.d_task_nav_btn.setVisible(False)
 
-        # ── Risk badge ────────────────────────────────────────────────────────
         risk = _compute_risk_label(self.state)
         self.d_risk_badge.setText(f"Risk: {risk['label']}")
         self.d_risk_badge.setStyleSheet(
             f"color:{risk['color']}; background:{risk['color']}18; "
-            f"border:1px solid {risk['color']}44; border-radius:5px; "
-            f"font-size:11px; font-weight:700; padding:3px 10px;"
+            f"border:1px solid {risk['color']}44; border-radius:5px; font-size:11px; font-weight:700; padding:3px 10px;"
         )
-
-        # ── AI suggestion ─────────────────────────────────────────────────────
         if self._last_ai_sugg:
             self.d_ai_sugg_lbl.setText(self._last_ai_sugg)
             self.d_ai_source_lbl.setText(_ai_src(self._last_ai_is_gemini))
@@ -1416,11 +1255,8 @@ class MainWindow(QMainWindow):
         dot = "🟢" if self._ai_coach.gemini_available else "🟡"
         self.d_ai_status_dot.setText(f"{dot} {self._ai_coach.gemini_status}")
 
-    # ── trade page learning ────────────────────────────────────────────────────
-
     def _refresh_trade_task(self) -> None:
-        if not hasattr(self, "t_task_title"):
-            return
+        if not hasattr(self, "t_task_title"): return
         active_task = self._get_active_task()
         if active_task:
             self.t_task_icon.setText(active_task.icon)
@@ -1430,12 +1266,9 @@ class MainWindow(QMainWindow):
         else:
             self.t_task_banner.setVisible(False)
 
-    # ── topbar ────────────────────────────────────────────────────────────────
-
     def _refresh_topbar(self) -> None:
         pv = self.state.portfolio_value
         pl = self.state.total_pnl
-        pc = self.state.total_pnl_pct * 100
         pl_color = _GREEN if pl >= 0 else _RED
 
         self.h_value.setText(f"TL {pv:,.0f}")
@@ -1454,8 +1287,6 @@ class MainWindow(QMainWindow):
             self.badge.setText("● DEMO")
             self.badge.setStyleSheet(f"color:{_AMBER}; font-size:11px; font-weight:700;")
 
-    # ── dashboard ─────────────────────────────────────────────────────────────
-
     def _refresh_dashboard_metrics(self) -> None:
         pv  = self.state.portfolio_value
         pl  = self.state.total_pnl
@@ -1468,21 +1299,17 @@ class MainWindow(QMainWindow):
 
         self.d_pv.setText(f"TL {pv:,.0f}")
         self.d_pv_s.setText(f"Başlangıç: TL {self.state.starting_balance:,.0f}")
-
         self.d_pl.setText(f"{pl:+,.0f} TL")
         self.d_pl.setStyleSheet(f"color:{pl_c}; font-weight:700; font-family:Consolas; font-size:18px;")
         self.d_pl_s.setText(f"% {pc:+.2f}")
         self.d_pl_s.setStyleSheet(f"color:{pl_c}; font-size:10px;")
-
         self.d_upl.setText(f"{upl:+,.0f} TL")
         self.d_upl.setStyleSheet(f"color:{upl_c}; font-weight:700; font-family:Consolas; font-size:18px;")
-
         self.d_rpl.setText(f"{rpl:+,.0f} TL")
         self.d_rpl.setStyleSheet(f"color:{rpl_c}; font-weight:700; font-family:Consolas; font-size:18px;")
 
     def _refresh_dashboard_charts(self) -> None:
         self.d_chart.set_line_values(self.state.value_history)
-
         prices = self._feed.get_all()
         all_syms = list(WATCHLIST.keys())
         self.d_mini_wl.setRowCount(len(all_syms))
@@ -1503,17 +1330,12 @@ class MainWindow(QMainWindow):
             self.d_recent.setItem(r, 2, _item(t.symbol, _TEXT))
             self.d_recent.setItem(r, 3, _item(f"{t.total:,.0f}", c))
 
-    # ── watchlist ─────────────────────────────────────────────────────────────
-
     def _refresh_watchlist(self) -> None:
         prices = self._feed.get_all()
         syms   = list(WATCHLIST.keys())
         self.wl_table.setRowCount(len(syms))
-
-        _risk_color = {
-            "Düşük": _GREEN, "Orta": _AMBER,
-            "Yüksek": _RED,  "Çok Yüksek": "#ff2040",
-        }
+        _risk_color = {"Düşük": _GREEN, "Orta": _AMBER, "Yüksek": _RED,  "Çok Yüksek": "#ff2040"}
+        
         for r, sym in enumerate(syms):
             info     = WATCHLIST[sym]
             edu      = ASSET_INFO.get(sym, {})
@@ -1528,11 +1350,9 @@ class MainWindow(QMainWindow):
             self.wl_table.setItem(r, 0, _item(sym,                        _TEXT, bold=True, align=Qt.AlignmentFlag.AlignLeft))
             self.wl_table.setItem(r, 1, _item(info["name"],               _TEXT2,           align=Qt.AlignmentFlag.AlignLeft))
             self.wl_table.setItem(r, 2, _item(f"{price:>14,.2f}",         _GREEN if tick_up else _RED, mono=True))
-            self.wl_table.setItem(r, 3, _item(f"{day_chg:+.2f}%",        chg_c))
+            self.wl_table.setItem(r, 3, _item(f"{day_chg:+.2f}%",         chg_c))
             self.wl_table.setItem(r, 4, _item(risk_txt,                   risk_c,           align=Qt.AlignmentFlag.AlignLeft))
             self.wl_table.setItem(r, 5, _item(edu.get("desc", ""),        _TEXT3,           align=Qt.AlignmentFlag.AlignLeft))
-
-    # ── positions ─────────────────────────────────────────────────────────────
 
     def _refresh_positions(self) -> None:
         self.pos_table.setRowCount(len(self.state.positions))
@@ -1548,8 +1368,6 @@ class MainWindow(QMainWindow):
             self.pos_table.setItem(r, 5, _item(f"{pl:>+10,.2f}",                    c,      bold=True))
             self.pos_table.setItem(r, 6, _item(f"{plpct:+.2f}%",                    c))
 
-    # ── account summary ───────────────────────────────────────────────────────
-
     def _refresh_account_summary(self) -> None:
         pl  = self.state.total_pnl
         upl = self.state.total_unrealized_pnl
@@ -1563,7 +1381,6 @@ class MainWindow(QMainWindow):
         self.acc_upl.setText(f"{upl:+,.2f} TL")
         self.acc_upl.setStyleSheet(f"color:{'#10b981' if upl >= 0 else '#ef4444'}; font-weight:700;")
 
-        # ── Win rate + risk ────────────────────────────────────────────────────
         sells       = [t for t in self.state.trade_history if t.side == "SAT"]
         profit_sell = self._extra.profitable_sell_count
         win_rate    = (profit_sell / len(sells) * 100) if sells else 0.0
@@ -1583,14 +1400,9 @@ class MainWindow(QMainWindow):
         self._refresh_trade_task()
         self._update_order_total()
 
-    # ── history ───────────────────────────────────────────────────────────────
-
     def _refresh_history(self, _text: str = "") -> None:
         filt   = self.hist_filter.text().strip().upper()
-        trades = [
-            t for t in reversed(self.state.trade_history)
-            if not filt or filt in t.symbol
-        ]
+        trades = [t for t in reversed(self.state.trade_history) if not filt or filt in t.symbol]
         self.hist_table.setRowCount(len(trades))
         buy_count   = sum(1 for t in self.state.trade_history if t.side == "AL")
         sell_count  = len(self.state.trade_history) - buy_count
@@ -1633,18 +1445,14 @@ class MainWindow(QMainWindow):
             self.hist_table.setItem(r, 5, _item(f"{t.price:>12,.2f}",  _TEXT, mono=True))
             self.hist_table.setItem(r, 6, _item(f"{t.total:>12,.2f}",  c,     bold=True))
 
-    # ── data ──────────────────────────────────────────────────────────────────
-
     def _refresh_data(self) -> None:
         if self.dataset_info is None:
-            for lbl in (self.dv_file, self.dv_rows, self.dv_date, self.dv_price):
-                lbl.setText("—")
+            for lbl in (self.dv_file, self.dv_rows, self.dv_date, self.dv_price): lbl.setText("—")
             self.dv_table.setRowCount(0)
             self.dv_status.setText("Henüz CSV seçilmedi.")
             return
 
-        di = self.dataset_info
-        cd = self.cleaned
+        di, cd = self.dataset_info, self.cleaned
         self.dv_file.setText(di.path.name)
         self.dv_rows.setText(f"{di.row_count:,}")
         self.dv_date.setText(cd.date_column if cd and cd.date_column else "—")
@@ -1654,31 +1462,20 @@ class MainWindow(QMainWindow):
         date_col  = cd.date_column if cd else None
         self.dv_table.setRowCount(len(di.columns))
         for r, col in enumerate(di.columns):
-            if col == date_col:
-                role, icon = "Tarih",  "🗓"
-            elif col in price_set:
-                role, icon = "Fiyat",  "💹"
-            else:
-                role, icon = "Genel",  "—"
+            if col == date_col: role, icon = "Tarih",  "🗓"
+            elif col in price_set: role, icon = "Fiyat",  "💹"
+            else: role, icon = "Genel",  "—"
             self.dv_table.setItem(r, 0, _item(col,          _TEXT, align=Qt.AlignmentFlag.AlignLeft))
             self.dv_table.setItem(r, 1, _item(f"{icon}  {role}", _TEXT2))
             self.dv_table.setItem(r, 2, _item("–",          _TEXT3))
-        self.dv_status.setText(
-            "Dosya analiz edildi. Pandas entegrasyonu aktif olunca tam temizleme akışı devreye girecek."
-        )
-
-    # ── analysis ──────────────────────────────────────────────────────────────
+        self.dv_status.setText("Dosya analiz edildi. Pandas entegrasyonu aktif olunca tam temizleme akışı devreye girecek.")
 
     def _refresh_analysis(self) -> None:
         self.an_chart.set_line_values(self.state.value_history)
-
         if self.trend_summary is None:
-            for lbl in (self.an_dir, self.an_chg, self.an_vol, self.an_next):
-                lbl.setText("—")
+            for lbl in (self.an_dir, self.an_chg, self.an_vol, self.an_next): lbl.setText("—")
             self.an_table.setRowCount(0)
-            self.an_status.setText(
-                "Senaryo simülasyonu henüz çalıştırılmadı."
-            )
+            self.an_status.setText("Senaryo simülasyonu henüz çalıştırılmadı.")
             return
 
         ts   = self.trend_summary
@@ -1691,9 +1488,7 @@ class MainWindow(QMainWindow):
         self.an_chg.setText(f"%{ts.change_pct:+.2f}")
         self.an_chg.setStyleSheet(f"color:{cc}; font-weight:700; font-family:Consolas; font-size:18px;")
         self.an_vol.setText(f"%{ts.volatility_pct:.2f}")
-        self.an_next.setText(
-            f"TL {self.forecast[0].value:,.0f}" if self.forecast else "—"
-        )
+        self.an_next.setText(f"TL {self.forecast[0].value:,.0f}" if self.forecast else "—")
 
         self.an_table.setRowCount(len(self.forecast))
         prev = self.state.value_history[-1] if self.state.value_history else 0.0
@@ -1704,38 +1499,24 @@ class MainWindow(QMainWindow):
             self.an_table.setItem(r, 1, _item(f"TL {fp.value:,.2f}", _TEXT, mono=True))
             self.an_table.setItem(r, 2, _item(f"{diff:+,.2f}", dc2, bold=True))
             prev = fp.value
-        self.an_status.setText(
-            f"Son senaryo: {self.state.simulation_status}"
-        )
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # HELPERS
-    # ══════════════════════════════════════════════════════════════════════════
+        self.an_status.setText(f"Son senaryo: {self.state.simulation_status}")
 
     def _show_warnings(self, warnings: list) -> None:
-        """Forward MistakeWarning list to the learn page as coaching toasts."""
         if hasattr(self, "_learn_page"):
-            for w in warnings:
-                self._learn_page.show_mistake_warning(w)
+            for w in warnings: self._learn_page.show_mistake_warning(w)
 
     def _get_active_task(self) -> "object | None":
-        """Return the next incomplete task across all unlocked levels, or None."""
         xp = self._ls.xp
         for lvl in getattr(self._ls, "levels", []):
-            if not lvl.is_unlocked(xp):
-                continue
+            if not lvl.is_unlocked(xp): continue
             t = lvl.get_next_task(getattr(self._ls, "_completed_tasks", set()))
-            if t:
-                return t
+            if t: return t
         return None
 
     def _fire_analysis_ai(self) -> None:
-        """Ask AI Coach for a commentary on the current analysis/simulation."""
-        if not hasattr(self, "an_ai_lbl"):
-            return
+        if not hasattr(self, "an_ai_lbl"): return
         self.an_ai_spinner.setText("⏳ yükleniyor…")
         self.an_ai_lbl.setText("AI Koç analiz yapıyor…")
-
         action = "Senaryo simülasyonu tamamlandı, trend analizi yapıldı."
         is_ai  = self._ai_coach.gemini_available
 
@@ -1748,10 +1529,7 @@ class MainWindow(QMainWindow):
                 self.an_ai_spinner.setText("")
             self._refresh_dashboard_learning()
 
-        self._ai_coach.get_action_suggestion(
-            self.state, self._extra, self._ls,
-            action, _on_result, lb=self._lb,
-        )
+        self._ai_coach.get_action_suggestion(self.state, self._extra, self._ls, action, _on_result, lb=self._lb)
 
     def _warn(self, msg: str) -> None:
         QMessageBox.warning(self, "Portfolio Simulator", msg)
@@ -1762,31 +1540,19 @@ class MainWindow(QMainWindow):
             self._refresh_learn()
 
     def _fire_ai_suggestion(self, action: str = "") -> None:
-        """Request an async AI suggestion; result propagates to all visible panels."""
         is_ai = self._ai_coach.gemini_available
-
         def _on_result(text: str) -> None:
             self._last_ai_sugg      = text
             self._last_ai_is_gemini = is_ai
-            if hasattr(self, "_learn_page"):
-                self._learn_page.push_ai_suggestion(text, is_ai=is_ai)
+            if hasattr(self, "_learn_page"): self._learn_page.push_ai_suggestion(text, is_ai=is_ai)
             self._refresh_dashboard_learning()
-
-        self._ai_coach.get_action_suggestion(
-            self.state, self._extra, self._ls,
-            action, _on_result, lb=self._lb,
-        )
+        self._ai_coach.get_action_suggestion(self.state, self._extra, self._ls, action, _on_result, lb=self._lb)
 
     def _save_leaderboard_session(self) -> None:
-        """Persist current session to local leaderboard JSON."""
         try:
-            entry = self._lb.save_session(
-                self.state, self._ls, self._extra.profitable_sell_count
-            )
+            entry = self._lb.save_session(self.state, self._ls, self._extra.profitable_sell_count)
             self.statusBar().showMessage(
-                f"Liderlik tablosuna kaydedildi: {entry.username}  ·  "
-                f"K/Z: {entry.total_pnl:+,.0f} TL  ·  XP: {entry.xp}",
-                6000,
+                f"Liderlik tablosuna kaydedildi: {entry.username}  ·  K/Z: {entry.total_pnl:+,.0f} TL  ·  XP: {entry.xp}", 6000
             )
         except Exception as exc:
             self.statusBar().showMessage(f"Kayıt hatası: {exc}", 4000)
@@ -1795,8 +1561,7 @@ class MainWindow(QMainWindow):
     def _show_welcome(self) -> None:
         dlg = WelcomeDialog(self)
         dlg.exec()
-        if dlg.go_learn:
-            self._goto(5)
+        if dlg.go_learn: self._goto(5)
 
     def _rotate_tip(self) -> None:
         if TIPS:
@@ -1813,331 +1578,94 @@ class MainWindow(QMainWindow):
         self._tutorial_done["check_history"]   = has_sell
         self._tutorial_done["run_analysis"]    = self.trend_summary is not None
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # STYLES
-    # ══════════════════════════════════════════════════════════════════════════
 
-    def _apply_styles(self) -> None:
-        self.setStyleSheet(f"""
-        QMainWindow, QWidget {{
-            background: {_BG};
-            color: {_TEXT};
-        }}
-        QFrame#topbar {{
-            background: {_TOPBAR};
-            border-bottom: 1px solid {_BORDER};
-        }}
-        QFrame#sidebar {{
-            background: {_TOPBAR};
-        }}
-        QPushButton#navBtn {{
-            border: none;
-            background: transparent;
-        }}
-        QFrame#sep {{
-            color: {_BORDER};
-            background: {_BORDER};
-            max-height: 1px;
-            max-width: 1px;
-        }}
-        QFrame#card {{
-            background: {_SURF};
-            border: 1px solid {_BORDER};
-            border-radius: 8px;
-        }}
-        QLabel#cardTitle {{
-            color: {_TEXT3};
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 1.5px;
-        }}
-        /* metric boxes */
-        QFrame#metricBox {{
-            background: {_SURF};
-            border: 1px solid {_BORDER};
-            border-radius: 8px;
-        }}
-        QLabel#metricTitle {{
-            color: {_TEXT3};
-            font-size: 9px;
-            font-weight: 700;
-            letter-spacing: 1.5px;
-        }}
-        QLabel#metricValue {{
-            color: {_TEXT};
-            font-size: 18px;
-            font-weight: 700;
-        }}
-        QLabel#metricSub {{
-            color: {_TEXT3};
-            font-size: 10px;
-        }}
-        /* tables */
-        QTableWidget#tbl {{
-            background: {_SURF};
-            gridline-color: transparent;
-            border: none;
-            color: {_TEXT};
-            font-size: 12px;
-            outline: none;
-        }}
-        QTableWidget#tbl::item {{
-            padding: 7px 10px;
-            border: none;
-        }}
-        QTableWidget#tbl::item:selected {{
-            background: #1a2d50;
-            color: {_TEXT};
-        }}
-        QTableWidget#tbl::item:alternate {{
-            background: {_SURF2};
-        }}
-        QHeaderView::section {{
-            background: {_SURF2};
-            color: {_TEXT3};
-            padding: 8px 10px;
-            border: none;
-            border-bottom: 1px solid {_BORDER};
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.8px;
-        }}
-        /* form inputs */
-        QLineEdit#formInput, QDoubleSpinBox#formInput, QDateEdit#formInput {{
-            background: {_SURF2};
-            border: 1px solid {_BORDER};
-            border-radius: 5px;
-            color: {_TEXT};
-            padding: 0 8px;
-            min-height: 32px;
-            font-size: 13px;
-            selection-background-color: {_ACCENT};
-        }}
-        QLineEdit#formInput:focus,
-        QDoubleSpinBox#formInput:focus,
-        QDateEdit#formInput:focus {{
-            border: 1px solid {_ACCENT};
-        }}
-        QDoubleSpinBox#formInput::up-button, QDoubleSpinBox#formInput::down-button {{
-            width: 18px;
-            background: {_BORDER};
-            border: none;
-        }}
-        /* buttons */
-        QPushButton {{
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 600;
-            padding: 0 14px;
-        }}
-        QPushButton#btnPrimary {{
-            background: {_ACCENT};
-            color: white;
-            border: none;
-        }}
-        QPushButton#btnPrimary:hover   {{ background: {_ACCH}; }}
-        QPushButton#btnPrimary:pressed {{ background: #1e40af; }}
+# ══════════════════════════════════════════════════════════════════════════════
+# STYLESHEET (Extracted for readability)
+# ══════════════════════════════════════════════════════════════════════════════
 
-        QPushButton#btnSuccess {{
-            background: #064e3b;
-            color: {_GREEN};
-            border: 1px solid #065f46;
-        }}
-        QPushButton#btnSuccess:hover {{ background: #065f46; border-color: {_GREEN}; }}
+STYLESHEET = f"""
+QMainWindow, QWidget {{ background: {_BG}; color: {_TEXT}; }}
+QFrame#topbar {{ background: {_TOPBAR}; border-bottom: 1px solid {_BORDER}; }}
+QFrame#sidebar {{ background: {_TOPBAR}; }}
+QPushButton#navBtn {{ border: none; background: transparent; }}
+QFrame#sep {{ color: {_BORDER}; background: {_BORDER}; max-height: 1px; max-width: 1px; }}
+QFrame#card {{ background: {_SURF}; border: 1px solid {_BORDER}; border-radius: 8px; }}
+QLabel#cardTitle {{ color: {_TEXT3}; font-size: 10px; font-weight: 700; letter-spacing: 1.5px; }}
 
-        QPushButton#btnDanger {{
-            background: transparent;
-            color: {_RED};
-            border: 1px solid #7f1d1d;
-        }}
-        QPushButton#btnDanger:hover {{ background: #1a0505; border-color: {_RED}; }}
+/* metric boxes */
+QFrame#metricBox {{ background: {_SURF}; border: 1px solid {_BORDER}; border-radius: 8px; }}
+QLabel#metricTitle {{ color: {_TEXT3}; font-size: 9px; font-weight: 700; letter-spacing: 1.5px; }}
+QLabel#metricValue {{ color: {_TEXT}; font-size: 18px; font-weight: 700; }}
+QLabel#metricSub {{ color: {_TEXT3}; font-size: 10px; }}
 
-        QPushButton#btnSecondary {{
-            background: {_SURF2};
-            color: {_TEXT2};
-            border: 1px solid {_BORDER};
-        }}
-        QPushButton#btnSecondary:hover {{ background: #1e2d45; color: {_TEXT}; }}
+/* tables */
+QTableWidget#tbl {{ background: {_SURF}; gridline-color: transparent; border: none; color: {_TEXT}; font-size: 12px; outline: none; }}
+QTableWidget#tbl::item {{ padding: 7px 10px; border: none; }}
+QTableWidget#tbl::item:selected {{ background: #1a2d50; color: {_TEXT}; }}
+QTableWidget#tbl::item:alternate {{ background: {_SURF2}; }}
+QHeaderView::section {{ background: {_SURF2}; color: {_TEXT3}; padding: 8px 10px; border: none; border-bottom: 1px solid {_BORDER}; font-size: 10px; font-weight: 700; letter-spacing: 0.8px; }}
 
-        QPushButton#btnGhost {{
-            background: transparent;
-            color: {_TEXT3};
-            border: 1px solid {_BORDER};
-        }}
-        QPushButton#btnGhost:hover {{ color: {_TEXT}; border-color: {_TEXT3}; }}
+/* form inputs */
+QLineEdit#formInput, QDoubleSpinBox#formInput, QDateEdit#formInput {{ background: {_SURF2}; border: 1px solid {_BORDER}; border-radius: 5px; color: {_TEXT}; padding: 0 8px; min-height: 32px; font-size: 13px; selection-background-color: {_ACCENT}; }}
+QLineEdit#formInput:focus, QDoubleSpinBox#formInput:focus, QDateEdit#formInput:focus {{ border: 1px solid {_ACCENT}; }}
+QDoubleSpinBox#formInput::up-button, QDoubleSpinBox#formInput::down-button {{ width: 18px; background: {_BORDER}; border: none; }}
 
-        /* order side toggle */
-        QPushButton#sideActive {{
-            background: {_ACCENT};
-            color: white;
-            border: none;
-            border-radius: 0px;
-            font-size: 14px;
-            font-weight: 800;
-        }}
-        QPushButton#sideInactive {{
-            background: {_SURF2};
-            color: {_TEXT3};
-            border: none;
-            border-radius: 0px;
-            font-size: 13px;
-        }}
-        QPushButton#sideInactive:hover {{ background: {_BORDER}; color: {_TEXT2}; }}
+/* buttons */
+QPushButton {{ border-radius: 6px; font-size: 12px; font-weight: 600; padding: 0 14px; }}
+QPushButton#btnPrimary {{ background: {_ACCENT}; color: white; border: none; }}
+QPushButton#btnPrimary:hover {{ background: {_ACCH}; }}
+QPushButton#btnPrimary:pressed {{ background: #1e40af; }}
+QPushButton#btnSuccess {{ background: #064e3b; color: {_GREEN}; border: 1px solid #065f46; }}
+QPushButton#btnSuccess:hover {{ background: #065f46; border-color: {_GREEN}; }}
+QPushButton#btnDanger {{ background: transparent; color: {_RED}; border: 1px solid #7f1d1d; }}
+QPushButton#btnDanger:hover {{ background: #1a0505; border-color: {_RED}; }}
+QPushButton#btnSecondary {{ background: {_SURF2}; color: {_TEXT2}; border: 1px solid {_BORDER}; }}
+QPushButton#btnSecondary:hover {{ background: #1e2d45; color: {_TEXT}; }}
+QPushButton#btnGhost {{ background: transparent; color: {_TEXT3}; border: 1px solid {_BORDER}; }}
+QPushButton#btnGhost:hover {{ color: {_TEXT}; border-color: {_TEXT3}; }}
 
-        /* execute order button */
-        QPushButton#btnExecute, QPushButton#btnExecuteBuy {{
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #1d6fe8, stop:1 #1450c4);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 14px;
-            font-weight: 800;
-            letter-spacing: 1px;
-        }}
-        QPushButton#btnExecute:hover, QPushButton#btnExecuteBuy:hover {{
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #2878f0, stop:1 #1a5ad4);
-        }}
-        QPushButton#btnExecuteSell {{
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #d42020, stop:1 #a01818);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 14px;
-            font-weight: 800;
-            letter-spacing: 1px;
-        }}
-        QPushButton#btnExecuteSell:hover {{
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #e42828, stop:1 #b02020);
-        }}
-        /* status / scroll */
-        QStatusBar {{
-            background: {_TOPBAR};
-            color: {_TEXT3};
-            font-size: 11px;
-            border-top: 1px solid {_BORDER};
-        }}
-        QScrollBar:vertical {{
-            background: {_SURF};
-            width: 6px;
-        }}
-        QScrollBar::handle:vertical {{
-            background: {_BORDER};
-            border-radius: 3px;
-            min-height: 30px;
-        }}
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-        QScrollBar:horizontal {{
-            background: {_SURF};
-            height: 6px;
-        }}
-        QScrollBar::handle:horizontal {{
-            background: {_BORDER};
-            border-radius: 3px;
-        }}
-        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
+/* order side toggle */
+QPushButton#sideActive {{ background: {_ACCENT}; color: white; border: none; border-radius: 0px; font-size: 14px; font-weight: 800; }}
+QPushButton#sideInactive {{ background: {_SURF2}; color: {_TEXT3}; border: none; border-radius: 0px; font-size: 13px; }}
+QPushButton#sideInactive:hover {{ background: {_BORDER}; color: {_TEXT2}; }}
 
-        /* ── learn sidebar ── */
-        QFrame#learnSidebar {{
-            background: {_TOPBAR};
-            border-right: 1px solid {_BORDER};
-        }}
-        QLabel#learnHeader {{
-            color: {_AMBER};
-            font-size: 13px;
-            font-weight: 700;
-            padding-left: 12px;
-            background: {_TOPBAR};
-            border-bottom: 1px solid {_BORDER};
-        }}
-        QPushButton#learnTopicBtn, QPushButton#learnNavBtn {{
-            background: transparent;
-            color: {_TEXT2};
-            border: none;
-            border-radius: 0px;
-            font-size: 12px;
-            font-weight: 500;
-            text-align: left;
-            padding-left: 16px;
-        }}
-        QPushButton#learnTopicBtn:hover, QPushButton#learnNavBtn:hover {{
-            background: {_SURF};
-            color: {_TEXT};
-        }}
-        QPushButton#learnTopicBtn:checked, QPushButton#learnNavBtn:checked {{
-            background: #1a2d45;
-            color: {_ACCENT};
-            font-weight: 700;
-            border-left: 3px solid {_ACCENT};
-        }}
+/* execute order button */
+QPushButton#btnExecute, QPushButton#btnExecuteBuy {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1d6fe8, stop:1 #1450c4); color: white; border: none; border-radius: 6px; font-size: 14px; font-weight: 800; letter-spacing: 1px; }}
+QPushButton#btnExecute:hover, QPushButton#btnExecuteBuy:hover {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2878f0, stop:1 #1a5ad4); }}
+QPushButton#btnExecuteSell {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #d42020, stop:1 #a01818); color: white; border: none; border-radius: 6px; font-size: 14px; font-weight: 800; letter-spacing: 1px; }}
+QPushButton#btnExecuteSell:hover {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #e42828, stop:1 #b02020); }}
 
-        /* ── learn content ── */
-        QStackedWidget#learnContent, QScrollArea#learnScroll,
-        QScrollArea#learnScroll > QWidget > QWidget {{
-            background: {_BG};
-        }}
-        QLabel#topicTitle {{
-            color: {_TEXT};
-            font-size: 22px;
-            font-weight: 800;
-        }}
-        QLabel#topicSummary {{
-            color: {_ACCENT};
-            font-size: 13px;
-            font-style: italic;
-        }}
-        QLabel#topicHeading {{
-            color: {_AMBER};
-            font-size: 13px;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-        }}
-        QLabel#topicBody {{
-            color: {_TEXT2};
-            font-size: 13px;
-            line-height: 1.7;
-        }}
+/* status / scroll */
+QStatusBar {{ background: {_TOPBAR}; color: {_TEXT3}; font-size: 11px; border-top: 1px solid {_BORDER}; }}
+QScrollBar:vertical {{ background: {_SURF}; width: 6px; }}
+QScrollBar::handle:vertical {{ background: {_BORDER}; border-radius: 3px; min-height: 30px; }}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+QScrollBar:horizontal {{ background: {_SURF}; height: 6px; }}
+QScrollBar::handle:horizontal {{ background: {_BORDER}; border-radius: 3px; }}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
 
-        /* ── glossary ── */
-        QFrame#glossRow {{
-            background: {_SURF};
-            border: 1px solid {_BORDER};
-            border-radius: 6px;
-        }}
-        QLabel#glossTerm {{
-            color: {_TEXT};
-            font-size: 12px;
-            font-weight: 700;
-        }}
-        QLabel#glossDef {{
-            color: {_TEXT2};
-            font-size: 12px;
-        }}
+/* ── learn sidebar ── */
+QFrame#learnSidebar {{ background: {_TOPBAR}; border-right: 1px solid {_BORDER}; }}
+QLabel#learnHeader {{ color: {_AMBER}; font-size: 13px; font-weight: 700; padding-left: 12px; background: {_TOPBAR}; border-bottom: 1px solid {_BORDER}; }}
+QPushButton#learnTopicBtn, QPushButton#learnNavBtn {{ background: transparent; color: {_TEXT2}; border: none; border-radius: 0px; font-size: 12px; font-weight: 500; text-align: left; padding-left: 16px; }}
+QPushButton#learnTopicBtn:hover, QPushButton#learnNavBtn:hover {{ background: {_SURF}; color: {_TEXT}; }}
+QPushButton#learnTopicBtn:checked, QPushButton#learnNavBtn:checked {{ background: #1a2d45; color: {_ACCENT}; font-weight: 700; border-left: 3px solid {_ACCENT}; }}
 
-        /* ── tutorial card ── */
-        QFrame#tutCard {{
-            background: {_SURF};
-            border: 1px solid {_BORDER};
-            border-radius: 8px;
-        }}
+/* ── learn content ── */
+QStackedWidget#learnContent, QScrollArea#learnScroll, QScrollArea#learnScroll > QWidget > QWidget {{ background: {_BG}; }}
+QLabel#topicTitle {{ color: {_TEXT}; font-size: 22px; font-weight: 800; }}
+QLabel#topicSummary {{ color: {_ACCENT}; font-size: 13px; font-style: italic; }}
+QLabel#topicHeading {{ color: {_AMBER}; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; }}
+QLabel#topicBody {{ color: {_TEXT2}; font-size: 13px; line-height: 1.7; }}
 
-        /* ── learn page new elements ── */
-        QFrame#xpHeader {{
-            background: {_TOPBAR};
-            border-bottom: 1px solid {_BORDER};
-        }}
+/* ── glossary ── */
+QFrame#glossRow {{ background: {_SURF}; border: 1px solid {_BORDER}; border-radius: 6px; }}
+QLabel#glossTerm {{ color: {_TEXT}; font-size: 12px; font-weight: 700; }}
+QLabel#glossDef {{ color: {_TEXT2}; font-size: 12px; }}
+QFrame#tutCard {{ background: {_SURF}; border: 1px solid {_BORDER}; border-radius: 8px; }}
+QFrame#xpHeader {{ background: {_TOPBAR}; border-bottom: 1px solid {_BORDER}; }}
 
-        /* ── amber button ── */
-        QPushButton#btnAmber {{
-            background: #1c1200;
-            color: {_AMBER};
-            border: 1px solid #44330a;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 700;
-        }}
-        QPushButton#btnAmber:hover {{ background: #2a1c00; border-color: {_AMBER}; }}
-        """)
+/* ── amber button ── */
+QPushButton#btnAmber {{ background: #1c1200; color: {_AMBER}; border: 1px solid #44330a; border-radius: 6px; font-size: 12px; font-weight: 700; }}
+QPushButton#btnAmber:hover {{ background: #2a1c00; border-color: {_AMBER}; }}
+"""
