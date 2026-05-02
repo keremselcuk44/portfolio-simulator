@@ -1,0 +1,26 @@
+{
+  "entries": [
+    {
+      "username": "CesurUzman9562",
+      "total_pnl": 0.0,
+      "pnl_pct": 0.0,
+      "trade_count": 0,
+      "risk_score": 0.0,
+      "win_rate": 0.0,
+      "level": "Başlangıç",
+      "xp": 0,
+      "timestamp": "2026-03-27T19:20:06"
+    },
+    {
+      "username": "BaşarılıYatırımcı931",
+      "total_pnl": 0.0,
+      "pnl_pct": 0.0,
+      "trade_count": 0,
+      "risk_score": 0.0,
+      "win_rate": 0.0,
+      "level": "Başlangıç",
+      "xp": 0,
+      "timestamp": "2026-03-29T18:57:46"
+    }
+  ]
+}

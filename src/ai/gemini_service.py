@@ -14,12 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from typing import TYPE_CHECKING
-
 from PyQt6.QtCore import QThread, pyqtSignal
-
-if TYPE_CHECKING:
-    pass
 
 # ── System instruction (shared across all prompt types) ───────────────────────
 
@@ -246,11 +241,6 @@ class GeminiService:
             del self._cache[next(iter(self._cache))]
         self._cache[h] = text
         return text
-
-    def handle_response(self, text: str | None, fallback: str) -> str:
-        if text and len(text) >= self.MIN_OUTPUT_CHARS:
-            return text
-        return fallback
 
     # ── Async factory ─────────────────────────────────────────────────────────
 

@@ -32,28 +32,3 @@ class Position:
             return 0.0
         return self.unrealized_pnl / self.total_cost
 
-    # ── legacy aliases (kept for backward compat) ─────────────────────────────
-
-    @property
-    def buy_price(self) -> float:
-        return self.avg_cost
-
-    @property
-    def invested_amount(self) -> float:
-        return self.total_cost
-
-    @property
-    def effective_price(self) -> float:
-        return self.current_price
-
-    @property
-    def current_value(self) -> float:
-        return self.market_value
-
-    @property
-    def profit_loss(self) -> float:
-        return self.unrealized_pnl
-
-    @property
-    def profit_loss_pct(self) -> float:
-        return self.unrealized_pnl_pct

@@ -9,7 +9,7 @@ from src.learning.manager import (
     LearningManager,
 )
 from src.learning.mistake_detector import MistakeDetector, MistakeWarning
-from src.learning.task import Task, TaskStatus
+from src.learning.task import Task
 
 # Backwards-compat alias
 LearningSystem = LearningManager
@@ -28,5 +28,4 @@ __all__ = [
     "MistakeWarning",
     "Task",
     "TaskSpec",
-    "TaskStatus",
 ]

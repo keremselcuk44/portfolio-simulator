@@ -67,19 +67,6 @@ class PortfolioState:
     def total_realized_pnl(self) -> float:
         return round(self.total_pnl - self.total_unrealized_pnl, 2)
 
-    # legacy aliases
-    @property
-    def available_cash(self) -> float:
-        return self.cash
-
-    @property
-    def total_profit_loss(self) -> float:
-        return self.total_pnl
-
-    @property
-    def total_profit_loss_pct(self) -> float:
-        return self.total_pnl_pct
-
     # ── trade execution ────────────────────────────────────────────────────────
 
     def execute_buy(self, symbol: str, quantity: float, price: float) -> Trade:

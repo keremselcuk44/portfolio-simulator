@@ -69,17 +69,6 @@ def _calc_risk_score(state: Any) -> float:
     return round(max_weight * 10, 2)
 
 
-def _calc_win_rate(state: Any) -> float:
-    """Percentage of sell trades that were profitable vs avg_cost at time of sale."""
-    sells = [t for t in state.trade_history if t.side == "SAT"]
-    if not sells:
-        return 0.0
-    # We can't recover per-trade avg_cost after execution, so approximate:
-    # A sell trade is a "win" if total_realized_pnl > 0 (whole portfolio level).
-    # For per-trade granularity, callers should pass profitable_sell_count.
-    return 0.0  # placeholder; main_window passes the correct value
-
-
 class LeaderboardManager:
     """
     Manages the local session leaderboard.

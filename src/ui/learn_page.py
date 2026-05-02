@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen
 from PyQt6.QtWidgets import (
     QFrame,
@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -77,11 +76,46 @@ def _sep(vertical: bool = False) -> QFrame:
     s = QFrame()
     s.setFrameShape(QFrame.Shape.VLine if vertical else QFrame.Shape.HLine)
     s.setStyleSheet(f"color:{_BORDER}; background:{_BORDER};")
-    if vertical:
-        s.setMaximumWidth(1)
-    else:
-        s.setMaximumHeight(1)
+    s.setMaximumWidth(1) if vertical else s.setMaximumHeight(1)
     return s
+
+
+def _line_edit(placeholder: str = "") -> QLineEdit:
+    w = QLineEdit()
+    w.setPlaceholderText(placeholder)
+    w.setObjectName("formInput")
+    w.setFixedHeight(34)
+    w.setStyleSheet(
+        f"background:{_SURF2}; border:1px solid {_BORDER}; border-radius:5px; "
+        f"color:{_TEXT}; padding:0 8px; font-size:12px;"
+    )
+    return w
+
+
+def _page_header(icon: str, title: str, subtitle: str = "") -> tuple[QHBoxLayout, QLabel]:
+    """Standard page header: icon + title + mutable subtitle label. Returns (layout, sub_lbl)."""
+    hl = QHBoxLayout()
+    icon_lbl = QLabel(icon)
+    icon_lbl.setStyleSheet("font-size:28px;")
+    hl.addWidget(icon_lbl)
+    col = QVBoxLayout()
+    col.setSpacing(2)
+    t = QLabel(title)
+    t.setStyleSheet(f"color:{_TEXT}; font-size:20px; font-weight:800;")
+    sub_lbl = QLabel(subtitle)
+    sub_lbl.setStyleSheet(f"color:{_TEXT3}; font-size:12px;")
+    col.addWidget(t)
+    col.addWidget(sub_lbl)
+    hl.addLayout(col)
+    hl.addStretch()
+    return hl, sub_lbl
+
+
+def _ai_source(is_ai: bool, qa: bool = False) -> str:
+    """Standard AI source label text."""
+    if is_ai:
+        return "🤖 Gemini AI yanıtı"
+    return "📋 Kural tabanlı yanıt" if qa else "📋 Kural tabanlı analiz"
 
 
 # ── XP Progress Bar ───────────────────────────────────────────────────────────
@@ -575,20 +609,7 @@ class AchievementsPage(QScrollArea):
         self.setWidget(self._inner)
 
         # Header
-        hdr = QHBoxLayout()
-        icon_lbl = QLabel("🏆")
-        icon_lbl.setStyleSheet("font-size:28px;")
-        hdr.addWidget(icon_lbl)
-        title_col = QVBoxLayout()
-        title_col.setSpacing(2)
-        title_lbl = QLabel("Başarımlar")
-        title_lbl.setStyleSheet(f"color:{_TEXT}; font-size:20px; font-weight:800;")
-        self._count_lbl = QLabel()
-        self._count_lbl.setStyleSheet(f"color:{_TEXT3}; font-size:12px;")
-        title_col.addWidget(title_lbl)
-        title_col.addWidget(self._count_lbl)
-        hdr.addLayout(title_col)
-        hdr.addStretch()
+        hdr, self._count_lbl = _page_header("🏆", "Başarımlar")
         vl.addLayout(hdr)
 
         vl.addWidget(_sep())
@@ -741,20 +762,7 @@ class ChallengesPage(QScrollArea):
         self.setWidget(self._inner)
 
         # Header
-        hdr = QHBoxLayout()
-        icon_lbl = QLabel("⚡")
-        icon_lbl.setStyleSheet("font-size:28px;")
-        hdr.addWidget(icon_lbl)
-        title_col = QVBoxLayout()
-        title_col.setSpacing(2)
-        title_lbl = QLabel("Zorluklar")
-        title_lbl.setStyleSheet(f"color:{_TEXT}; font-size:20px; font-weight:800;")
-        self._count_lbl = QLabel()
-        self._count_lbl.setStyleSheet(f"color:{_TEXT3}; font-size:12px;")
-        title_col.addWidget(title_lbl)
-        title_col.addWidget(self._count_lbl)
-        hdr.addLayout(title_col)
-        hdr.addStretch()
+        hdr, self._count_lbl = _page_header("⚡", "Zorluklar")
         vl.addLayout(hdr)
 
         desc_lbl = QLabel(
@@ -801,14 +809,7 @@ class AnalyticsPage(QScrollArea):
         self.setWidget(self._inner)
 
         # Header
-        hdr = QHBoxLayout()
-        icon_lbl = QLabel("📊")
-        icon_lbl.setStyleSheet("font-size:28px;")
-        hdr.addWidget(icon_lbl)
-        title_lbl = QLabel("Performans Analitiği")
-        title_lbl.setStyleSheet(f"color:{_TEXT}; font-size:20px; font-weight:800;")
-        hdr.addWidget(title_lbl)
-        hdr.addStretch()
+        hdr, _ = _page_header("📊", "Performans Analitiği")
         self._vl.addLayout(hdr)
         self._vl.addWidget(_sep())
         self._vl.addSpacing(4)
@@ -954,20 +955,7 @@ class LeaderboardPage(QScrollArea):
         self._vl.addStretch()
 
     def _build_header(self) -> None:
-        hdr = QHBoxLayout()
-        icon_lbl = QLabel("🏅")
-        icon_lbl.setStyleSheet("font-size:28px;")
-        hdr.addWidget(icon_lbl)
-        title_col = QVBoxLayout()
-        title_col.setSpacing(2)
-        title_lbl = QLabel("Liderlik Tablosu")
-        title_lbl.setStyleSheet(f"color:{_TEXT}; font-size:20px; font-weight:800;")
-        self._sub_lbl = QLabel()
-        self._sub_lbl.setStyleSheet(f"color:{_TEXT3}; font-size:12px;")
-        title_col.addWidget(title_lbl)
-        title_col.addWidget(self._sub_lbl)
-        hdr.addLayout(title_col)
-        hdr.addStretch()
+        hdr, self._sub_lbl = _page_header("🏅", "Liderlik Tablosu")
 
         self._save_btn = QPushButton("💾  Skoru Kaydet")
         self._save_btn.setFixedHeight(36)
@@ -1128,17 +1116,18 @@ class LeaderboardPage(QScrollArea):
             for j, (val, width) in enumerate(zip(values, self._WIDTHS)):
                 lbl = QLabel(val)
                 lbl.setFixedWidth(width)
-                color = _TEXT
-                if j == 2:
-                    color = pnl_color
-                elif j == 3:
+                if j in (2, 3):
                     color = pnl_color
                 elif is_me:
                     color = _ACCENT if j == 1 else _TEXT
+                else:
+                    color = _TEXT
+                bold = j <= 1 or is_me
+                mono = j >= 2
                 lbl.setStyleSheet(
                     f"color:{color}; font-size:11px; "
-                    + ("font-weight:700;" if j <= 1 or is_me else "font-weight:500;")
-                    + " font-family:Consolas;" if j >= 2 else ""
+                    f"{'font-weight:700;' if bold else 'font-weight:500;'}"
+                    f"{' font-family:Consolas;' if mono else ''}"
                 )
                 row_hl.addWidget(lbl)
             row_hl.addStretch()
@@ -1156,17 +1145,11 @@ class LevelCompletionDialog(QFrame):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.raise_()
         self._build(level_name, level_icon, summary)
-        self._center()
+        if parent:
+            pr = parent.rect()
+            self.move((pr.width() - self.width()) // 2, (pr.height() - self.height()) // 2)
         self.show()
         QTimer.singleShot(8000, self.close)
-
-    def _center(self) -> None:
-        if self.parent():
-            pr = self.parent().rect()
-            self.move(
-                (pr.width()  - self.width())  // 2,
-                (pr.height() - self.height()) // 2,
-            )
 
     def _build(self, name: str, icon: str, s: dict) -> None:
         self.setFixedWidth(420)
@@ -1334,18 +1317,21 @@ class AICoachPage(QScrollArea):
         self._build_context_panel()
         self._vl.addStretch()
 
+    @staticmethod
+    def _make_panel(obj_name: str) -> tuple[QFrame, QVBoxLayout]:
+        """Return a styled QFrame + its QVBoxLayout for AI sub-panels."""
+        frm = QFrame()
+        frm.setObjectName(obj_name)
+        frm.setStyleSheet(
+            f"QFrame#{obj_name} {{background:{_SURF}; border:1px solid {_BORDER}; border-radius:10px;}}"
+        )
+        vl = QVBoxLayout(frm)
+        vl.setContentsMargins(18, 14, 18, 14)
+        vl.setSpacing(10)
+        return frm, vl
+
     def _build_header(self) -> None:
-        hdr = QHBoxLayout()
-        icon_lbl = QLabel("🤖")
-        icon_lbl.setStyleSheet("font-size:28px;")
-        hdr.addWidget(icon_lbl)
-        col = QVBoxLayout(); col.setSpacing(2)
-        title = QLabel("AI Koç")
-        title.setStyleSheet(f"color:{_TEXT}; font-size:20px; font-weight:800;")
-        sub = QLabel("Portföy verilerine dayalı kişiselleştirilmiş koçluk.")
-        sub.setStyleSheet(f"color:{_TEXT2}; font-size:12px;")
-        col.addWidget(title); col.addWidget(sub)
-        hdr.addLayout(col); hdr.addStretch()
+        hdr, _ = _page_header("🤖", "AI Koç", "Portföy verilerine dayalı kişiselleştirilmiş koçluk.")
         self._vl.addLayout(hdr)
         self._vl.addWidget(_sep())
 
@@ -1364,7 +1350,7 @@ class AICoachPage(QScrollArea):
         hl.addWidget(self._status_msg, 1)
 
         # Inline API key input (shown when key missing)
-        self._key_input = _create_line_edit("GEMINI_API_KEY yapıştırın…")
+        self._key_input = _line_edit("GEMINI_API_KEY yapıştırın…")
         self._key_input.setEchoMode(self._key_input.EchoMode.Password)
         self._key_input.setFixedWidth(280)
         self._key_btn = QPushButton("Bağlan")
@@ -1381,14 +1367,7 @@ class AICoachPage(QScrollArea):
         self._refresh_status()
 
     def _build_suggestion_panel(self) -> None:
-        frm = QFrame()
-        frm.setObjectName("aiSuggPanel")
-        frm.setStyleSheet(
-            f"QFrame#aiSuggPanel {{background:{_SURF}; border:1px solid {_BORDER}; border-radius:10px;}}"
-        )
-        vl = QVBoxLayout(frm)
-        vl.setContentsMargins(18, 14, 18, 14)
-        vl.setSpacing(10)
+        frm, vl = self._make_panel("aiSuggPanel")
 
         hdr = QHBoxLayout()
         title = QLabel("💡  Akıllı Öneri")
@@ -1421,14 +1400,7 @@ class AICoachPage(QScrollArea):
         self._vl.addWidget(frm)
 
     def _build_qa_panel(self) -> None:
-        frm = QFrame()
-        frm.setObjectName("aiQAPanel")
-        frm.setStyleSheet(
-            f"QFrame#aiQAPanel {{background:{_SURF}; border:1px solid {_BORDER}; border-radius:10px;}}"
-        )
-        vl = QVBoxLayout(frm)
-        vl.setContentsMargins(18, 14, 18, 14)
-        vl.setSpacing(10)
+        frm, vl = self._make_panel("aiQAPanel")
 
         title = QLabel("💬  AI'ya Sor")
         title.setStyleSheet(f"color:{_TEXT3}; font-size:10px; font-weight:700; letter-spacing:1px;")
@@ -1439,7 +1411,7 @@ class AICoachPage(QScrollArea):
         vl.addWidget(examples_lbl)
 
         input_row = QHBoxLayout(); input_row.setSpacing(8)
-        self._qa_input = _create_line_edit("Sorunuzu yazın…")
+        self._qa_input = _line_edit("Sorunuzu yazın…")
         self._qa_input.returnPressed.connect(self._on_ask)
         input_row.addWidget(self._qa_input, 1)
         ask_btn = QPushButton("Sor  →")
@@ -1474,14 +1446,7 @@ class AICoachPage(QScrollArea):
         self._vl.addWidget(frm)
 
     def _build_hint_panel(self) -> None:
-        frm = QFrame()
-        frm.setObjectName("aiHintPanel")
-        frm.setStyleSheet(
-            f"QFrame#aiHintPanel {{background:{_SURF}; border:1px solid {_BORDER}; border-radius:10px;}}"
-        )
-        vl = QVBoxLayout(frm)
-        vl.setContentsMargins(18, 14, 18, 14)
-        vl.setSpacing(10)
+        frm, vl = self._make_panel("aiHintPanel")
 
         hdr = QHBoxLayout()
         title = QLabel("🎯  Görev İpucu")
@@ -1606,19 +1571,13 @@ class AICoachPage(QScrollArea):
         self._sugg_lbl.setText(text)
         self._sugg_loading.setVisible(False)
         self._refresh_sugg_btn.setEnabled(True)
-        is_ai = self._coach and self._coach.gemini_available
-        self._sugg_source.setText(
-            "🤖 Gemini AI yanıtı" if is_ai else "📋 Kural tabanlı analiz"
-        )
+        self._sugg_source.setText(_ai_source(bool(self._coach and self._coach.gemini_available)))
 
     def _on_qa_ready(self, text: str) -> None:
         self._qa_loading.setVisible(False)
         self._qa_answer.setText(text)
         self._qa_answer.setVisible(True)
-        is_ai = self._coach and self._coach.gemini_available
-        self._qa_source.setText(
-            "🤖 Gemini AI yanıtı" if is_ai else "📋 Kural tabanlı yanıt"
-        )
+        self._qa_source.setText(_ai_source(bool(self._coach and self._coach.gemini_available), qa=True))
 
     def _on_hint_ready(self, text: str) -> None:
         self._hint_lbl.setText(text)
@@ -1699,21 +1658,7 @@ class AICoachPage(QScrollArea):
         self._sugg_lbl.setText(text)
         self._sugg_loading.setVisible(False)
         self._refresh_sugg_btn.setEnabled(True)
-        self._sugg_source.setText(
-            "🤖 Gemini AI yanıtı" if is_ai else "📋 Kural tabanlı analiz"
-        )
-
-
-def _create_line_edit(placeholder: str = "") -> QLineEdit:
-    w = QLineEdit()
-    w.setPlaceholderText(placeholder)
-    w.setObjectName("formInput")
-    w.setFixedHeight(34)
-    w.setStyleSheet(
-        f"background:#1a2235; border:1px solid #1e2d45; border-radius:5px; "
-        f"color:#e2e8f0; padding:0 8px; font-size:12px;"
-    )
-    return w
+        self._sugg_source.setText(_ai_source(is_ai))
 
 
 # ── Main LearnPage ────────────────────────────────────────────────────────────
@@ -1786,12 +1731,11 @@ class LearnPage(QWidget):
         self._ach_page  = AchievementsPage(self._ls)
         self._ch_page   = ChallengesPage(self._ls)
         self._anal_page = AnalyticsPage(self._ls)
-        self._lb_page   = LeaderboardPage(self._lb, self._save_session_cb) if self._lb else LeaderboardPage(
-            type("_FakeLB", (), {
-                "username": "—", "get_top_10": list, "current_rank": lambda s: None,
-                "current_entry": lambda s: None, "entry_count": 0,
-            })()
-        )
+        lb_arg = self._lb or type("_FakeLB", (), {
+            "username": "—", "get_top_10": list,
+            "current_rank": lambda s: None, "current_entry": lambda s: None, "entry_count": 0,
+        })()
+        self._lb_page = LeaderboardPage(lb_arg, self._save_session_cb)
         self._tools_page    = self._build_tools_page()
         self._ai_coach_page = AICoachPage(self._ai_coach)
         self._content.addWidget(self._ach_page)
@@ -1818,20 +1762,8 @@ class LearnPage(QWidget):
         scroll.setWidget(inner)
 
         # Header
-        hdr = QHBoxLayout()
-        icon_lbl = QLabel("🧮")
-        icon_lbl.setStyleSheet("font-size:28px;")
-        hdr.addWidget(icon_lbl)
-        title_col = QVBoxLayout()
-        title_col.setSpacing(2)
-        title_lbl = QLabel("İnteraktif Araçlar")
-        title_lbl.setStyleSheet(f"color:{_TEXT}; font-size:20px; font-weight:800;")
-        sub_lbl = QLabel("K/Z Hesaplayıcı ve DCA Simülatörü — değerleri değiştirerek öğren.")
-        sub_lbl.setStyleSheet(f"color:{_TEXT2}; font-size:12px;")
-        title_col.addWidget(title_lbl)
-        title_col.addWidget(sub_lbl)
-        hdr.addLayout(title_col)
-        hdr.addStretch()
+        hdr, _ = _page_header("🧮", "İnteraktif Araçlar",
+                               "K/Z Hesaplayıcı ve DCA Simülatörü — değerleri değiştirerek öğren.")
 
         # Advanced task badge
         task_badge = QLabel("🚀 İleri Görev: Hesaplayıcıları Kullan")
@@ -1869,15 +1801,9 @@ class LearnPage(QWidget):
         pl_vl = QVBoxLayout(pl_frm)
         pl_vl.setContentsMargins(20, 16, 20, 16)
         pl_calc = PLCalculatorWidget()
-        # Wrap valueChanged to fire calc_used_cb
-        orig_recalc = pl_calc._recalc
-        def _pl_recalc_tracked():
-            orig_recalc()
-            if self._calc_used_cb:
-                self._calc_used_cb()
-        pl_calc.sp_buy.valueChanged.connect(lambda _v: _pl_recalc_tracked() if _v else None)
-        pl_calc.sp_cur.valueChanged.connect(lambda _v: _pl_recalc_tracked() if _v else None)
-        pl_calc.sp_qty.valueChanged.connect(lambda _v: _pl_recalc_tracked() if _v else None)
+        if self._calc_used_cb:
+            for sig in (pl_calc.sp_buy.valueChanged, pl_calc.sp_cur.valueChanged, pl_calc.sp_qty.valueChanged):
+                sig.connect(lambda _: self._calc_used_cb())
         pl_vl.addWidget(pl_calc)
         vl.addWidget(pl_frm)
 
@@ -1889,13 +1815,9 @@ class LearnPage(QWidget):
         dca_vl = QVBoxLayout(dca_frm)
         dca_vl.setContentsMargins(20, 16, 20, 16)
         dca_sim = DCASimulatorWidget()
-        orig_slide = dca_sim._on_slide
-        def _dca_slide_tracked():
-            orig_slide()
-            if self._calc_used_cb:
-                self._calc_used_cb()
-        dca_sim.sl_amt.valueChanged.connect(lambda _v: _dca_slide_tracked())
-        dca_sim.sl_mo.valueChanged.connect(lambda _v: _dca_slide_tracked())
+        if self._calc_used_cb:
+            dca_sim.sl_amt.valueChanged.connect(lambda _: self._calc_used_cb())
+            dca_sim.sl_mo.valueChanged.connect(lambda _: self._calc_used_cb())
         dca_vl.addWidget(dca_sim)
         vl.addWidget(dca_frm)
         vl.addStretch()
