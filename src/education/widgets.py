@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.education.content import ASSET_INFO, TUTORIAL_STEPS
-from src.portfolio.market import WATCHLIST
+
 
 _BG     = "#0b0f1a"
 _SURF   = "#111827"
@@ -405,6 +405,192 @@ class _MiniLineChart(QWidget):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class RiskComparisonWidget(QWidget):
+    """CSV verisi verilirse volatiliteye göre risk karşılaştırması gösterir."""
+
+    def __init__(self, feature_datasets: dict | None = None) -> None:
+        super().__init__()
+        self._feature_datasets = feature_datasets or {}
+        self._build()
+
+    def _risk_from_volatility(self, volatility: float) -> tuple[str, str]:
+        vol_pct = volatility * 100
+
+        if vol_pct < 1:
+            return "Düşük", _GREEN
+        if vol_pct < 3:
+            return "Orta", _AMBER
+        if vol_pct < 6:
+            return "Yüksek", _RED
+
+        return "Çok Yüksek", "#ff3060"
+
+    def _build(self) -> None:
+        vl = QVBoxLayout(self)
+        vl.setContentsMargins(0, 0, 0, 0)
+        vl.setSpacing(8)
+        vl.addWidget(_section("VARLIK RİSK KARŞILAŞTIRMASI  (CSV Volatilitesine Göre)"))
+
+        if not self._feature_datasets:
+            msg = _lbl(
+                "Risk karşılaştırması için CSV verisi bulunamadı.",
+                color=_TEXT3,
+            )
+            msg.setWordWrap(True)
+            vl.addWidget(msg)
+            return
+
+        sorted_assets = sorted(
+            self._feature_datasets.items(),
+            key=lambda item: item[1].last_volatility,
+        )
+
+        max_vol = max((feat.last_volatility for _, feat in sorted_assets), default=1.0)
+
+        for sym, feat in sorted_assets:
+            volatility = feat.last_volatility
+            vol_pct = volatility * 100
+            ratio = volatility / max_vol if max_vol > 0 else 0.0
+            risk, color = self._risk_from_volatility(volatility)
+
+            edu = ASSET_INFO.get(sym, {})
+
+            row = QHBoxLayout()
+            row.setSpacing(8)
+
+            sym_lbl = _lbl(sym, bold=True, color=_TEXT)
+            sym_lbl.setFixedWidth(44)
+            row.addWidget(sym_lbl)
+
+            bar = _HBar(color, ratio)
+            bar.setFixedHeight(16)
+            row.addWidget(bar, 1)
+
+            vol_lbl = _lbl(f"{vol_pct:.2f}%/gün", color=_TEXT2)
+            vol_lbl.setFixedWidth(90)
+            row.addWidget(vol_lbl)
+
+            risk_lbl = _lbl(risk, color=color)
+            risk_lbl.setFixedWidth(90)
+            row.addWidget(risk_lbl)
+
+            desc_lbl = _lbl(edu.get("desc", "")[:60], color=_TEXT3)
+            row.addWidget(desc_lbl, 1)
+
+            vl.addLayout(row)
+
+        note = _lbl(
+            "Bu karşılaştırma yüklenen CSV dosyalarından hesaplanan volatiliteye göre yapılır.",
+            color=_TEXT3,
+        )
+        note.setWordWrap(True)
+        vl.addWidget(note)
+        vl.addStretch()
+    """CSV verilerinden hesaplanan volatiliteye göre varlık risk karşılaştırması."""
+
+    def __init__(self, feature_datasets: dict | None = None) -> None:
+        super().__init__()
+        self._feature_datasets = feature_datasets or {}
+        self._build()
+
+    def _risk_from_volatility(self, volatility: float) -> tuple[str, str]:
+        """
+        volatility = 0.025 ise yaklaşık %2.5 günlük oynaklık anlamına gelir.
+        """
+        vol_pct = volatility * 100
+
+        if vol_pct < 1:
+            return "Düşük", _GREEN
+
+        if vol_pct < 3:
+            return "Orta", _AMBER
+
+        if vol_pct < 6:
+            return "Yüksek", _RED
+
+        return "Çok Yüksek", "#ff3060"
+
+    def _asset_name_from_csv(self, sym: str, feat) -> str:
+        """
+        CSV içindeki Name sütunundan varlık adını bulur.
+        Name yoksa sembolü döndürür.
+        """
+        df = feat.df
+
+        if "Name" in df.columns and not df["Name"].dropna().empty:
+            return str(df["Name"].dropna().iloc[0])
+
+        return sym
+
+    def _build(self) -> None:
+        vl = QVBoxLayout(self)
+        vl.setContentsMargins(0, 0, 0, 0)
+        vl.setSpacing(8)
+        vl.addWidget(
+            _section("VARLIK RİSK KARŞILAŞTIRMASI  (CSV Volatilitesine Göre)")
+        )
+
+        if not self._feature_datasets:
+            empty_lbl = _lbl(
+                "CSV verisi bulunamadı. Risk karşılaştırması için data/raw klasörüne geçerli CSV dosyaları ekleyin.",
+                color=_TEXT3,
+            )
+            empty_lbl.setWordWrap(True)
+            vl.addWidget(empty_lbl)
+            vl.addStretch()
+            return
+
+        sorted_assets = sorted(
+            self._feature_datasets.items(),
+            key=lambda item: item[1].last_volatility,
+        )
+
+        max_vol = max(
+            (feat.last_volatility for _, feat in sorted_assets),
+            default=1.0,
+        )
+
+        for sym, feat in sorted_assets:
+            volatility = feat.last_volatility
+            vol_pct = volatility * 100
+            ratio = volatility / max_vol if max_vol > 0 else 0.0
+
+            risk, color = self._risk_from_volatility(volatility)
+
+            edu = ASSET_INFO.get(sym, {})
+            asset_name = self._asset_name_from_csv(sym, feat)
+
+            row = QHBoxLayout()
+            row.setSpacing(8)
+
+            sym_lbl = _lbl(sym, bold=True, color=_TEXT)
+            sym_lbl.setFixedWidth(44)
+            row.addWidget(sym_lbl)
+
+            bar = _HBar(color, ratio)
+            bar.setFixedHeight(16)
+            row.addWidget(bar, 1)
+
+            vol_lbl = _lbl(f"{vol_pct:.2f}%/gün", color=_TEXT2)
+            vol_lbl.setFixedWidth(90)
+            row.addWidget(vol_lbl)
+
+            risk_lbl = _lbl(risk, color=color)
+            risk_lbl.setFixedWidth(90)
+            row.addWidget(risk_lbl)
+
+            desc = edu.get("desc", asset_name)
+            desc_lbl = _lbl(desc[:60], color=_TEXT3)
+            row.addWidget(desc_lbl, 1)
+
+            vl.addLayout(row)
+
+        note = _lbl(
+            "Bu karşılaştırma, yüklenen CSV dosyalarından hesaplanan son 7 günlük volatiliteye göre yapılır.",
+            color=_TEXT3,
+        )
+        note.setWordWrap(True)
+        vl.addWidget(note)
+        vl.addStretch()
     """Tüm varlıkların volatilite karşılaştırması."""
 
     def __init__(self) -> None:
@@ -417,7 +603,7 @@ class RiskComparisonWidget(QWidget):
         vl.setSpacing(8)
         vl.addWidget(_section("VARLIK RİSK KARŞILAŞTIRMASI  (Günlük Ortalama Oynaklık)"))
 
-        sorted_assets = sorted(WATCHLIST.items(), key=lambda x: x[1]["vol"])
+        sorted_assets = sorted(EDU_ASSET_RISK_DEMO.items(), key=lambda x: x[1]["vol"])
         max_vol = max(v["vol"] for _, v in sorted_assets)
 
         _risk_colors = {

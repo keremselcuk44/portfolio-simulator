@@ -33,18 +33,12 @@ class PortfolioState:
 
     @classmethod
     def with_demo_data(cls) -> "PortfolioState":
-        from src.portfolio.market import WATCHLIST
-
+        """
+        Demo fiyatlar kaldırıldı.
+        Uygulama artık gerçek CSV fiyat akışıyla çalışır.
+        """
         state = cls(starting_balance=1_000_000.0, cash=1_000_000.0)
-        demo: list[tuple[str, float, float]] = [
-            ("BTC",  0.05, WATCHLIST["BTC"]["price"]  * 0.97),
-            ("ETH",  1.50, WATCHLIST["ETH"]["price"]  * 0.98),
-            ("AAPL", 10,   WATCHLIST["AAPL"]["price"] * 0.99),
-            ("NVDA", 5,    WATCHLIST["NVDA"]["price"] * 0.96),
-        ]
-        for sym, qty, price in demo:
-            state.execute_buy(sym, qty, price)
-        state.simulation_status = "Demo portfoy yuklendi"
+        state.simulation_status = "Boş portföy oluşturuldu"
         return state
 
     # ── computed properties ───────────────────────────────────────────────────

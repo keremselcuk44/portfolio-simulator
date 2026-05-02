@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np  # type: ignore[import-untyped]
+
 
 @dataclass
 class ForecastPoint:
@@ -10,30 +12,28 @@ class ForecastPoint:
 
 
 class RegressionForecaster:
-    """Lightweight forecasting helper until sklearn is integrated."""
+    """Linear regression forecaster using numpy least-squares."""
 
     def predict_next(self, series: list[float], steps: int = 3) -> list[ForecastPoint]:
         if steps <= 0:
             return []
         if not series:
-            return [ForecastPoint(index=index, value=0.0) for index in range(steps)]
-
+            return [ForecastPoint(index=i, value=0.0) for i in range(steps)]
         if len(series) == 1:
-            start_index = len(series)
-            return [
-                ForecastPoint(index=start_index + index, value=series[0])
-                for index in range(steps)
-            ]
+            return [ForecastPoint(index=1 + i, value=series[0]) for i in range(steps)]
 
-        slope = (series[-1] - series[0]) / max(len(series) - 1, 1)
-        start_index = len(series)
-        base_value = series[-1]
+        x = np.arange(len(series), dtype=float)
+        y = np.array(series, dtype=float)
 
-        forecasts: list[ForecastPoint] = []
-        for index in range(steps):
-            next_value = base_value + slope * (index + 1)
-            forecasts.append(
-                ForecastPoint(index=start_index + index, value=round(next_value, 2))
+        # Ordinary least-squares: fit degree-1 polynomial
+        coeffs = np.polyfit(x, y, deg=1)
+        slope, intercept = float(coeffs[0]), float(coeffs[1])
+
+        start = len(series)
+        return [
+            ForecastPoint(
+                index=start + i,
+                value=float(f"{slope * (start + i) + intercept:.2f}"),
             )
-
-        return forecasts
+            for i in range(steps)
+        ]

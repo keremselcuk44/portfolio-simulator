@@ -30,8 +30,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.analysis import ForecastPoint, RegressionForecaster, TrendAnalyzer, TrendSummary
-from src.data_processing import CleanedDataset, DataCleaner, DataLoader, DatasetInfo
+from src.analysis import FeatureBuilder, FeatureDataset, ForecastPoint, RegressionForecaster, TrendAnalyzer, TrendSummary
+from src.data_processing import CleanedDataset, DataCleaner, DataLoader, DatasetInfo, LoadedDataset
 from src.education import ASSET_INFO, GLOSSARY, TIPS, TOPICS, TUTORIAL_STEPS
 from src.ai import AICoach, ContextBuilder, GeminiService
 from src.learning import (
@@ -42,7 +42,7 @@ from src.learning import (
 )
 
 LearningSystem = LearningManager   # backwards-compat alias
-from src.portfolio import PriceFeed, WATCHLIST
+from src.portfolio import HistoricalPriceFeed
 from src.portfolio.portfolio import PortfolioState
 from src.ui.learn_page import LearnPage
 from src.ui.welcome_dialog import WelcomeDialog
@@ -128,8 +128,51 @@ def _compute_risk_label(state: "PortfolioState") -> dict:
     if max_weight >= 45 or upl_pct <= -7:
         return {"label": "ORTA",   "color": _AMBER, "detail": f"En yüksek konsantrasyon %{max_weight:.0f}"}
     return     {"label": "DÜŞÜK",  "color": _GREEN, "detail": f"Portföy dengeli"}
+def _risk_from_volatility(volatility: float) -> dict:
+    """
+    CSV verisinden hesaplanan günlük volatiliteye göre risk sınıfı üretir.
 
+    volatility değeri 0.025 ise yaklaşık %2.5 günlük oynaklık anlamına gelir.
+    """
+    vol_pct = volatility * 100
 
+    if vol_pct < 1:
+        return {
+            "label": "Düşük",
+            "color": _GREEN,
+            "detail": f"{vol_pct:.2f}% oynaklık",
+        }
+
+    if vol_pct < 3:
+        return {
+            "label": "Orta",
+            "color": _AMBER,
+            "detail": f"{vol_pct:.2f}% oynaklık",
+        }
+
+    if vol_pct < 6:
+        return {
+            "label": "Yüksek",
+            "color": _RED,
+            "detail": f"{vol_pct:.2f}% oynaklık",
+        }
+
+    return {
+        "label": "Çok Yüksek",
+        "color": "#ff3060",
+        "detail": f"{vol_pct:.2f}% oynaklık",
+    }
+def _fmt_price(price: float) -> str:
+    """
+    Küçük fiyatlı varlıkların 0.00 görünmesini engeller.
+    """
+    if price >= 100:
+        return f"{price:,.2f}"
+    if price >= 1:
+        return f"{price:,.4f}"
+    if price >= 0.01:
+        return f"{price:,.6f}"
+    return f"{price:,.8f}"
 def _metric(title: str) -> tuple[QFrame, QLabel, QLabel]:
     box = QFrame()
     box.setObjectName("metricBox")
@@ -222,15 +265,39 @@ class _NavBtn(QPushButton):
 class MainWindow(QMainWindow):
     def __init__(self, state: PortfolioState | None = None) -> None:
         super().__init__()
-        self.state   = state or PortfolioState()
-        self._feed   = PriceFeed()
+        self.state    = state or PortfolioState()
         self._loader  = DataLoader()
         self._cleaner = DataCleaner()
+        self._features = FeatureBuilder()
         self._trend   = TrendAnalyzer()
         self._fore    = RegressionForecaster()
 
+        # ── auto-load data/raw/ on startup ────────────────────────────────────
+        _raw_folder = Path(__file__).resolve().parents[2] / "data" / "raw"
+        self._csv_datasets: dict[str, FeatureDataset] = {}
+        _seed: dict[str, float] = {}
+        _raw_loaded = self._loader.load_raw_folder(_raw_folder)
+        for sym, raw_ds in _raw_loaded.items():
+            try:
+                cleaned_ds = self._cleaner.clean(raw_ds)
+                feat_ds    = self._features.build(cleaned_ds)
+                self._csv_datasets[sym] = feat_ds
+                _seed[sym] = feat_ds.last_close
+            except Exception:
+                pass
+
+        if not self._csv_datasets:
+            raise RuntimeError(
+                "data/raw klasöründe geçerli CSV verisi bulunamadı. "
+                "Uygulama sadece Kaggle CSV verisiyle çalışacak şekilde ayarlandı."
+            )
+
+        self._feed = HistoricalPriceFeed(self._csv_datasets)
+        self.state.simulation_status = "Geçmiş CSV verisiyle piyasa akışı başlatıldı"
         self.dataset_info: DatasetInfo | None = None
         self.cleaned:      CleanedDataset | None = None
+        self.loaded_data:  LoadedDataset | None = None
+        self.feature_data: FeatureDataset | None = None
         self.trend_summary: TrendSummary | None = None
         self.forecast:     list[ForecastPoint] = []
 
@@ -354,9 +421,13 @@ class MainWindow(QMainWindow):
         vl.setContentsMargins(0, 10, 0, 10)
         vl.setSpacing(0)
 
-        pages = [("◎", "Özet", 0), ("⇄", "İşlem", 1),
-                 ("≡", "Geçmiş", 2), ("⊞", "Veri", 3),
-                 ("⊙", "Analiz", 4), ("📚", "Öğren", 5)]
+        pages = [
+            ("◎", "Özet", 0),
+            ("⇄", "İşlem", 1),
+            ("≡", "Geçmiş", 2),
+            ("⊙", "Analiz", 3),
+            ("📚", "Öğren", 4),
+        ]
         self._nav: list[_NavBtn] = []
         for icon, lbl, idx in pages:
             btn = _NavBtn(icon, lbl, idx)
@@ -382,7 +453,7 @@ class MainWindow(QMainWindow):
             self._extra.dashboard_visited = True
         elif idx == 2:
             self._extra.history_visited = True
-        elif idx == 4 and self._extra.analysis_run:
+        elif idx == 3 and self._extra.analysis_run:
             # User is viewing analysis page after a simulation — they see the forecast
             self._extra.forecast_viewed = True
         # Refresh learning system on every navigation
@@ -396,13 +467,13 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._page_dashboard())
         self._stack.addWidget(self._page_trade())
         self._stack.addWidget(self._page_history())
-        self._stack.addWidget(self._page_data())
         self._stack.addWidget(self._page_analysis())
         self._learn_page = LearnPage(
             self._ls, self._goto, self._on_calc_used,
             lb_manager=self._lb,
             save_session_cb=self._save_leaderboard_session,
             ai_coach=self._ai_coach,
+            feature_datasets=self._csv_datasets,
         )
         self._stack.addWidget(self._learn_page)
         return self._stack
@@ -488,7 +559,7 @@ class MainWindow(QMainWindow):
         learn_hdr.addWidget(_lbl("ÖĞRENME DURUMU", obj="cardTitle"))
         learn_hdr.addStretch()
         self.d_learn_goto_btn = _btn("→ Öğren", "btnAmber", h=26)
-        self.d_learn_goto_btn.clicked.connect(lambda: self._goto(5))
+        self.d_learn_goto_btn.clicked.connect(lambda: self._goto(4))
         learn_hdr.addWidget(self.d_learn_goto_btn)
         learn_vl.addLayout(learn_hdr)
 
@@ -574,7 +645,7 @@ class MainWindow(QMainWindow):
         ai_vl.addWidget(self.d_ai_source_lbl)
 
         d_ai_ask_btn = _btn("🤖 AI Koç'a Git", "btnSecondary", h=30)
-        d_ai_ask_btn.clicked.connect(lambda: self._goto(5))
+        d_ai_ask_btn.clicked.connect(lambda: self._goto(4))
         ai_vl.addWidget(d_ai_ask_btn)
 
         bottom.addWidget(ai_frm, 3)
@@ -587,9 +658,9 @@ class MainWindow(QMainWindow):
         sb3 = _btn("🤖  AI Koç",      "btnSecondary", h=44, minw=160)
         sb4 = _btn("⊙  Analiz Yap",  "btnSecondary", h=44, minw=160)
         sb1.clicked.connect(lambda: self._goto(1))
-        sb2.clicked.connect(lambda: self._goto(5))
-        sb3.clicked.connect(lambda: self._goto(5))
-        sb4.clicked.connect(lambda: self._goto(4))
+        sb2.clicked.connect(lambda: self._goto(4))
+        sb3.clicked.connect(lambda: self._goto(4))
+        sb4.clicked.connect(lambda: self._goto(3))
         act.addStretch()
         for b in (sb1, sb2, sb3, sb4):
             act.addWidget(b)
@@ -700,7 +771,7 @@ class MainWindow(QMainWindow):
         t_hl.addLayout(t_col, 1)
         goto_learn = _btn("Öğren", "btnAmber", h=26)
         goto_learn.setFixedWidth(64)
-        goto_learn.clicked.connect(lambda: self._goto(5))
+        goto_learn.clicked.connect(lambda: self._goto(4))
         t_hl.addWidget(goto_learn)
         vl.addWidget(self.t_task_banner)
 
@@ -1066,7 +1137,7 @@ class MainWindow(QMainWindow):
         # history filter
         self.hist_filter.textChanged.connect(self._refresh_history)
         # data
-        self.btn_load_csv.clicked.connect(self._load_csv)
+        #self.btn_load_csv.clicked.connect(self._load_csv)
         # analysis
         self.btn_sim.clicked.connect(self._run_scenario)
         self.btn_ai_analysis.clicked.connect(self._fire_analysis_ai)
@@ -1081,11 +1152,31 @@ class MainWindow(QMainWindow):
         self._prev_prices = self._feed.get_all()
         prices = self._feed.tick()
         self.state.update_prices(prices)
+
+        self._sync_order_price_with_market()
+
         self._refresh_topbar()
         self._refresh_watchlist()
         self._refresh_positions()
         self._refresh_dashboard_metrics()
         self._refresh_account_summary()
+    def _sync_order_price_with_market(self) -> None:
+        """
+        İşlem formunda seçili sembol varsa fiyat alanını güncel piyasa fiyatıyla eşitler.
+        Böylece kullanıcı eski fiyattan işlem yapmaz.
+        """
+        symbol = self.o_symbol.text().strip().upper()
+
+        if not symbol:
+            return
+
+        current_price = self._feed.get_price(symbol)
+
+        if current_price <= 0:
+            return
+
+        self.o_price.setValue(current_price)
+
 
     # ══════════════════════════════════════════════════════════════════════════
     # ORDER FORM INTERACTIONS
@@ -1300,34 +1391,154 @@ class MainWindow(QMainWindow):
         if not path:
             return
         try:
+            # 1. Metadata (for column map display)
             self.dataset_info = self._loader.inspect_csv(path)
             self.cleaned      = self._cleaner.build_cleaning_plan(self.dataset_info)
+            # 2. Full load → clean → features
+            raw               = self._loader.load_csv(path)
+            cleaned_data      = self._cleaner.clean(raw)
+            self.loaded_data  = cleaned_data
+            self.feature_data = self._features.build(cleaned_data)
+            # 3. Seed PriceFeed with last known close price
+            last_close = self.feature_data.last_close
+            sym = self.feature_data.symbol
+            if sym in self._feed._prices:
+                self._feed._prices[sym]  = last_close
+                self._feed._prev[sym]    = last_close
+                self._feed._open[sym]    = last_close
+            # 4. Pre-compute trend + forecast from close series
+            close_series = self.feature_data.close_series
+            self.trend_summary = self._trend.summarize(close_series)
+            self.forecast      = self._fore.predict_next(close_series, steps=6)
         except (FileNotFoundError, ValueError) as exc:
             self._warn(str(exc))
             return
         self.state.attach_dataset(path)
-        self._refresh_data()
+        #self._refresh_data()
+        self._refresh_analysis()
         self._goto(3)
+        rows = self.dataset_info.row_count
         self.statusBar().showMessage(
-            f"Yüklendi: {Path(path).name}  ({self.dataset_info.row_count:,} satır)", 5000
+            f"Yüklendi: {Path(path).name}  ({rows:,} satır) — "
+            f"Son kapanış: {self.feature_data.last_close:,.2f}  "
+            f"Trend: {self.trend_summary.direction}",
+            7000,
         )
+    def _build_portfolio_value_series_from_csv(self, start_date, end_date) -> list[float]:
+        """
+        Seçilen tarih aralığında, mevcut açık pozisyonların CSV fiyatlarına göre
+        portföy değer serisini üretir.
 
+        Örnek:
+        Gün 1: nakit + BTC miktarı * BTC fiyatı + ETH miktarı * ETH fiyatı
+        Gün 2: nakit + BTC miktarı * BTC fiyatı + ETH miktarı * ETH fiyatı
+        ...
+        """
+        if not self.state.positions:
+            raise ValueError("Analiz için en az bir açık pozisyon olmalı.")
+
+        series_by_symbol: dict[str, list[float]] = {}
+
+        for pos in self.state.positions:
+            feat = self._csv_datasets.get(pos.symbol)
+
+            if feat is None:
+                raise ValueError(
+                    f"{pos.symbol} için CSV verisi bulunamadı. "
+                    f"Bu varlık analiz ekranında gerçek veriyle simüle edilemez."
+                )
+
+            df = feat.df.copy()
+            date_col = feat.date_col
+            close_col = feat.close_col
+
+            mask = (
+                (df[date_col].dt.date >= start_date)
+                & (df[date_col].dt.date <= end_date)
+            )
+
+            selected = df.loc[mask, close_col].astype(float).tolist()
+
+            if not selected:
+                raise ValueError(
+                    f"{pos.symbol} için seçilen tarih aralığında veri bulunamadı."
+                )
+
+            series_by_symbol[pos.symbol] = selected
+
+        min_len = min(len(values) for values in series_by_symbol.values())
+
+        portfolio_values: list[float] = []
+
+        for i in range(min_len):
+            total_value = self.state.cash
+
+            for pos in self.state.positions:
+                price = series_by_symbol[pos.symbol][i]
+                total_value += pos.quantity * price
+
+            portfolio_values.append(round(total_value, 2))
+
+        return portfolio_values
     def _run_scenario(self) -> None:
         start = self.an_start.date().toPyDate()
-        end   = self.an_end.date().toPyDate()
+        end = self.an_end.date().toPyDate()
+
         try:
-            self.state.run_simulation(start, end)
+            portfolio_series = self._build_portfolio_value_series_from_csv(start, end)
         except ValueError as exc:
             self._warn(str(exc))
             return
-        self.trend_summary = self._trend.summarize(self.state.value_history)
-        self.forecast      = self._fore.predict_next(self.state.value_history, steps=6)
+
+        # Gerçek CSV verisine göre hesaplanan portföy değer geçmişini kullan
+        self.state.value_history = portfolio_series
+
+        # Son değeri pozisyonların güncel fiyatına da yansıt
+        last_prices: dict[str, float] = {}
+
+        for pos in self.state.positions:
+            feat = self._csv_datasets.get(pos.symbol)
+            if feat is None:
+                continue
+
+            df = feat.df.copy()
+            date_col = feat.date_col
+            close_col = feat.close_col
+
+            mask = (
+                (df[date_col].dt.date >= start)
+                & (df[date_col].dt.date <= end)
+            )
+
+            selected = df.loc[mask, close_col].astype(float).tolist()
+
+            if selected:
+                last_prices[pos.symbol] = selected[-1]
+
+        self.state.update_prices(last_prices)
+
+        # Analiz metrikleri artık gerçek CSV tabanlı portföy serisinden hesaplanıyor
+        self.trend_summary = self._trend.summarize(portfolio_series)
+        self.forecast = self._fore.predict_next(portfolio_series, steps=6)
+
+        self.state.simulation_status = (
+            f"CSV tabanlı analiz tamamlandı ({start.isoformat()} → {end.isoformat()})"
+        )
+
         self._extra.analysis_run = True
+        self._extra.forecast_viewed = True
+
+        self._refresh_topbar()
+        self._refresh_positions()
+        self._refresh_dashboard_metrics()
+        self._refresh_account_summary()
         self._refresh_analysis()
-        self._full_refresh()
-        self.statusBar().showMessage(f"Senaryo tamamlandı: {start} → {end}", 5000)
-        # Auto AI commentary on the analysis result
-        self._fire_analysis_ai()
+        self._refresh_learn()
+
+        self.statusBar().showMessage(
+            f"CSV tabanlı analiz tamamlandı: {len(portfolio_series)} veri noktası kullanıldı.",
+            6000,
+        )
 
     def _save_report(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
@@ -1364,7 +1575,7 @@ class MainWindow(QMainWindow):
         self._refresh_positions()
         self._refresh_account_summary()
         self._refresh_history()
-        self._refresh_data()
+        #self._refresh_data()
         self._refresh_analysis()
         self._refresh_tutorial()
         self._refresh_portfolio_alloc()
@@ -1536,15 +1747,27 @@ class MainWindow(QMainWindow):
         self.d_chart.set_line_values(self.state.value_history)
 
         prices = self._feed.get_all()
-        all_syms = list(WATCHLIST.keys())
+        all_syms = list(self._csv_datasets.keys())
+
         self.d_mini_wl.setRowCount(len(all_syms))
+
         for r, sym in enumerate(all_syms):
-            price   = prices.get(sym, 0.0)
+            price = prices.get(sym, 0.0)
             day_chg = self._feed.day_change_pct(sym)
-            chg_c   = _GREEN if day_chg >= 0 else _RED
-            self.d_mini_wl.setItem(r, 0, _item(sym, _TEXT, bold=True, align=Qt.AlignmentFlag.AlignLeft))
-            self.d_mini_wl.setItem(r, 1, _item(f"{price:>12,.2f}", _TEXT, mono=True))
-            self.d_mini_wl.setItem(r, 2, _item(f"{day_chg:+.2f}%", chg_c))
+            chg_c = _GREEN if day_chg >= 0 else _RED
+
+            self.d_mini_wl.setItem(
+                r, 0,
+                _item(sym, _TEXT, bold=True, align=Qt.AlignmentFlag.AlignLeft)
+            )
+            self.d_mini_wl.setItem(
+                r, 1,
+                _item(_fmt_price(price), _TEXT, mono=True)
+            )
+            self.d_mini_wl.setItem(
+                r, 2,
+                _item(f"{day_chg:+.2f}%", chg_c)
+            )
 
         trades = list(reversed(self.state.trade_history[-6:]))
         self.d_recent.setRowCount(len(trades))
@@ -1559,31 +1782,63 @@ class MainWindow(QMainWindow):
 
     def _refresh_watchlist(self) -> None:
         prices = self._feed.get_all()
-        syms   = list(WATCHLIST.keys())
+        syms = list(self._csv_datasets.keys())
         self.wl_table.setRowCount(len(syms))
 
-        _risk_color = {
-            "Düşük": _GREEN, "Orta": _AMBER,
-            "Yüksek": _RED,  "Çok Yüksek": "#ff2040",
-        }
         for r, sym in enumerate(syms):
-            info     = WATCHLIST[sym]
-            edu      = ASSET_INFO.get(sym, {})
-            price    = prices.get(sym, 0.0)
-            prev     = self._prev_prices.get(sym, price)
-            day_chg  = self._feed.day_change_pct(sym)
-            tick_up  = price >= prev
-            chg_c    = _GREEN if day_chg >= 0 else _RED
-            risk_txt = edu.get("risk", "—")
-            risk_c   = _risk_color.get(risk_txt, _TEXT3)
+            feat = self._csv_datasets.get(sym)
+            edu = ASSET_INFO.get(sym, {})
 
-            self.wl_table.setItem(r, 0, _item(sym,                        _TEXT, bold=True, align=Qt.AlignmentFlag.AlignLeft))
-            self.wl_table.setItem(r, 1, _item(info["name"],               _TEXT2,           align=Qt.AlignmentFlag.AlignLeft))
-            self.wl_table.setItem(r, 2, _item(f"{price:>14,.2f}",         _GREEN if tick_up else _RED, mono=True))
-            self.wl_table.setItem(r, 3, _item(f"{day_chg:+.2f}%",        chg_c))
-            self.wl_table.setItem(r, 4, _item(risk_txt,                   risk_c,           align=Qt.AlignmentFlag.AlignLeft))
-            self.wl_table.setItem(r, 5, _item(edu.get("desc", ""),        _TEXT3,           align=Qt.AlignmentFlag.AlignLeft))
+            name = sym
+            if feat is not None:
+                df = feat.df
+                if "Name" in df.columns and not df["Name"].dropna().empty:
+                    name = str(df["Name"].dropna().iloc[0])
 
+            price = prices.get(sym, 0.0)
+            prev = self._prev_prices.get(sym, price)
+            day_chg = self._feed.day_change_pct(sym)
+            tick_up = price >= prev
+            chg_c = _GREEN if day_chg >= 0 else _RED
+
+            if feat is not None:
+                risk_info = _risk_from_volatility(feat.last_volatility)
+                risk_txt = risk_info["label"]
+                risk_c = risk_info["color"]
+                risk_detail = risk_info["detail"]
+            else:
+                risk_txt = "—"
+                risk_c = _TEXT3
+                risk_detail = "CSV verisi yok"
+
+            desc = edu.get("desc", "")
+            if risk_detail != "CSV verisi yok":
+                desc = f"{desc} | Risk ölçümü: {risk_detail}"
+
+            self.wl_table.setItem(
+                r, 0,
+                _item(sym, _TEXT, bold=True, align=Qt.AlignmentFlag.AlignLeft)
+            )
+            self.wl_table.setItem(
+                r, 1,
+                _item(name, _TEXT2, align=Qt.AlignmentFlag.AlignLeft)
+            )
+            self.wl_table.setItem(
+                r, 2,
+                _item(_fmt_price(price), _GREEN if tick_up else _RED, mono=True)
+            )
+            self.wl_table.setItem(
+                r, 3,
+                _item(f"{day_chg:+.2f}%", chg_c)
+            )
+            self.wl_table.setItem(
+                r, 4,
+                _item(risk_txt, risk_c, align=Qt.AlignmentFlag.AlignLeft)
+            )
+            self.wl_table.setItem(
+                r, 5,
+                _item(desc, _TEXT3, align=Qt.AlignmentFlag.AlignLeft)
+            )
     # ── positions ─────────────────────────────────────────────────────────────
 
     def _refresh_positions(self) -> None:
@@ -1832,7 +2087,7 @@ class MainWindow(QMainWindow):
         dlg = WelcomeDialog(self)
         dlg.exec()
         if dlg.go_learn:
-            self._goto(5)
+            self._goto(4)
 
     def _rotate_tip(self) -> None:
         if TIPS:

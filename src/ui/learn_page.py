@@ -24,6 +24,15 @@ from src.learning.leaderboard import LeaderboardEntry, LeaderboardManager
 from src.learning.manager import Achievement, Challenge, LearningManager
 from src.learning.mistake_detector import MistakeWarning
 from src.learning.task import Task
+from src.education.widgets import (
+    PLCalculatorWidget,
+    VolatilityDemoWidget,
+    RiskComparisonWidget,
+    DCASimulatorWidget,
+    MissionPanelWidget,
+    PortfolioAllocationWidget,
+    TradingFlowWidget,
+)
 
 # Backwards-compat aliases — existing code below uses these names unchanged
 LearningSystem = LearningManager
@@ -1732,6 +1741,7 @@ class LearnPage(QWidget):
         lb_manager: "LeaderboardManager | None" = None,
         save_session_cb: "Callable[[], None] | None" = None,
         ai_coach: "object | None" = None,
+        feature_datasets: dict | None = None,
     ) -> None:
         super().__init__()
         self._ls              = ls
@@ -1740,6 +1750,7 @@ class LearnPage(QWidget):
         self._lb              = lb_manager
         self._save_session_cb = save_session_cb
         self._ai_coach        = ai_coach
+        self._feature_datasets = feature_datasets or {}
         self._active_section  = 0
         self._current_state: object = None
         self._build()
