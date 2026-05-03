@@ -745,3 +745,26 @@ class _DCAChart(QWidget):
         p.drawText(200, self.height() - 6, "─── Toplu Alım")
         p.end()
 
+
+# ── Stub widgets (referenced by learn_page.py) ────────────────────────────────
+
+class VolatilityDemoWidget(QWidget):
+    """Placeholder — not yet implemented."""
+    def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        super().__init__()
+
+class MissionPanelWidget(QWidget):
+    """Placeholder — not yet implemented."""
+    def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        super().__init__()
+
+class PortfolioAllocationWidget(QWidget):
+    """Placeholder — not yet implemented."""
+    def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        super().__init__()
+
+class TradingFlowWidget(QWidget):
+    """Placeholder — not yet implemented."""
+    def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        super().__init__()
+

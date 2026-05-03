@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+# ── glossary & topics (referenced by main_window imports) ─────────────────────
+
+GLOSSARY: list[dict] = []
+TOPICS: list[dict] = []
+
 # ── asset educational info ────────────────────────────────────────────────────
 
 ASSET_INFO: dict[str, dict] = {

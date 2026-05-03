@@ -268,9 +268,17 @@ class _NavBtn(QPushButton):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class MainWindow(QMainWindow):
-    def __init__(self, state: PortfolioState | None = None) -> None:
+    def __init__(self, state: PortfolioState | None = None, *,
+                 db: "Database | None" = None,
+                 user_id: int = 0,
+                 username: str = "Demo",
+                 session_id: str = "") -> None:
         super().__init__()
         self.state    = state or PortfolioState()
+        self._db         = db
+        self._user_id    = user_id
+        self._username   = username
+        self._session_id = session_id
         self._loader  = DataLoader()
         self._cleaner = DataCleaner()
         self._features = FeatureBuilder()
@@ -424,9 +432,6 @@ class MainWindow(QMainWindow):
             hl.addWidget(_sep(vertical=True))
 
         hl.addStretch()
-        self.badge = _lbl("● DEMO", color=_AMBER)
-        self.badge.setStyleSheet(f"color:{_AMBER}; font-size:11px; font-weight:700;")
-        hl.addWidget(self.badge)
         return bar
 
     # ── sidebar ───────────────────────────────────────────────────────────────
@@ -436,7 +441,7 @@ class MainWindow(QMainWindow):
         side.setObjectName("sidebar")
         side.setFixedWidth(82)
         vl = QVBoxLayout(side)
-        vl.setContentsMargins(0, 10, 0, 10)
+        vl.setContentsMargins(0, 10, 0, 0)
         vl.setSpacing(0)
 
         pages = [
@@ -455,10 +460,97 @@ class MainWindow(QMainWindow):
 
         self._nav[0].setChecked(True)
         vl.addStretch()
-        ver = _lbl("v1.0", color=_TEXT3)
-        ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ver.setStyleSheet(f"color:{_TEXT3}; font-size:9px; padding:6px 0;")
-        vl.addWidget(ver)
+
+        # ── user card (bottom of sidebar) ─────────────────────────────────────
+        from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtCore import QPoint
+
+        user_card = QPushButton()
+        user_card.setObjectName("userCard")
+        user_card.setFixedHeight(72)
+        user_card.setCursor(Qt.CursorShape.PointingHandCursor)
+        user_card.setToolTip("Hesap menüsü")
+
+        card_vl = QVBoxLayout(user_card)
+        card_vl.setContentsMargins(0, 8, 0, 8)
+        card_vl.setSpacing(2)
+
+        avatar_lbl = QLabel("👤")
+        avatar_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        avatar_lbl.setStyleSheet(f"""
+            font-size: 20px;
+            color: white;
+            background: {_ACCENT};
+            border-radius: 16px;
+            min-width: 32px;
+            max-width: 32px;
+            min-height: 32px;
+            max-height: 32px;
+        """)
+
+        name_lbl = QLabel(self._username)
+        name_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        name_lbl.setWordWrap(True)
+        name_lbl.setStyleSheet(f"""
+            color: {_TEXT};
+            font-size: 10px;
+            font-weight: 700;
+            max-width: 78px;
+        """)
+
+        card_vl.addWidget(avatar_lbl, alignment=Qt.AlignmentFlag.AlignHCenter)
+        card_vl.addWidget(name_lbl)
+
+        user_card.setStyleSheet(f"""
+            QPushButton#userCard {{
+                background: transparent;
+                border: none;
+                border-top: 1px solid {_BORDER};
+            }}
+            QPushButton#userCard:hover {{
+                background: {_SURF2};
+            }}
+        """)
+
+        def _show_user_menu() -> None:
+            menu = QMenu(self)
+            menu.setStyleSheet(f"""
+                QMenu {{
+                    background: {_SURF};
+                    border: 1px solid {_BORDER};
+                    border-radius: 8px;
+                    color: {_TEXT};
+                    font-size: 13px;
+                    padding: 4px;
+                }}
+                QMenu::item {{
+                    padding: 8px 20px;
+                    border-radius: 5px;
+                }}
+                QMenu::item:selected {{
+                    background: #3f0000;
+                    color: #ef4444;
+                }}
+                QMenu::separator {{
+                    height: 1px;
+                    background: {_BORDER};
+                    margin: 4px 8px;
+                }}
+            """)
+            info_action = menu.addAction(f"👤  {self._username}")
+            info_action.setEnabled(False)
+            menu.addSeparator()
+            logout_action = menu.addAction("🚪  Çıkış Yap")
+            logout_action.setEnabled(True)
+
+            # Show menu above the button
+            pos = user_card.mapToGlobal(QPoint(0, -menu.sizeHint().height() - 4))
+            chosen = menu.exec(pos)
+            if chosen == logout_action:
+                self._logout()
+
+        user_card.clicked.connect(_show_user_menu)
+        vl.addWidget(user_card)
         return side
 
     def _goto(self, idx: int) -> None:
@@ -1209,6 +1301,19 @@ class MainWindow(QMainWindow):
             self._warn(str(exc))
             return
 
+        # ── DB'ye kaydet ──────────────────────────────────────────────────
+        if self._db and self._user_id:
+            self._db.save_trade(
+                user_id=self._user_id,
+                session_id=self._session_id,
+                side=trade.side,
+                symbol=trade.symbol,
+                quantity=trade.quantity,
+                price=trade.price,
+                total=trade.total,
+                timestamp=trade.timestamp,
+            )
+
         self._full_refresh()
         self.statusBar().showMessage(msg, 6000)
 
@@ -1245,6 +1350,18 @@ class MainWindow(QMainWindow):
             self._detector.check_after_sell(self.state, sym, price, avg_cost_before)
             + self._detector.check_portfolio_health(self.state)
         )
+        # ── DB'ye kaydet ──────────────────────────────────────────────────
+        if self._db and self._user_id:
+            self._db.save_trade(
+                user_id=self._user_id,
+                session_id=self._session_id,
+                side=trade.side,
+                symbol=trade.symbol,
+                quantity=trade.quantity,
+                price=trade.price,
+                total=trade.total,
+                timestamp=trade.timestamp,
+            )
         self._full_refresh()
         self.statusBar().showMessage(f"{sym} pozisyonu kapatıldı. Gelir: TL {trade.total:,.2f}", 5000)
 
@@ -1499,14 +1616,9 @@ class MainWindow(QMainWindow):
         self.h_pos.setText(str(len(self.state.positions)))
 
         if "tamamlandi" in self.state.simulation_status:
-            self.badge.setText("● SENARYO")
-            self.badge.setStyleSheet(f"color:{_ACCENT}; font-size:11px; font-weight:700;")
+            self.statusBar().showMessage("● SENARYO MODU AKTİF", 10000)
         elif "Veri" in self.state.simulation_status:
-            self.badge.setText("● VERİ YÜKLENDİ")
-            self.badge.setStyleSheet(f"color:{_ACCENT}; font-size:11px; font-weight:700;")
-        else:
-            self.badge.setText("● DEMO")
-            self.badge.setStyleSheet(f"color:{_AMBER}; font-size:11px; font-weight:700;")
+            self.statusBar().showMessage("● VERİ YÜKLENDİ", 10000)
 
     def _refresh_dashboard_metrics(self) -> None:
         pv  = self.state.portfolio_value
@@ -1848,6 +1960,72 @@ class MainWindow(QMainWindow):
         self._tutorial_done["first_sell"]      = has_sell
         self._tutorial_done["check_history"]   = has_sell
         self._tutorial_done["run_analysis"]    = self.trend_summary is not None
+
+    # ── Logout ────────────────────────────────────────────────────────────────
+
+    def _logout(self) -> None:
+        """Save current session and show the login dialog again."""
+        # 1. Stop timers so nothing fires while we rebuild
+        if hasattr(self, "_market_timer"):
+            self._market_timer.stop()
+        if hasattr(self, "_tip_timer"):
+            self._tip_timer.stop()
+
+        # 2. Persist session to DB
+        if self._db and self._user_id and self._session_id:
+            try:
+                self._db.end_session(
+                    session_id=self._session_id,
+                    final_value=self.state.portfolio_value,
+                    total_pnl=self.state.total_pnl,
+                    trade_count=len(self.state.trade_history),
+                    xp_earned=self._ls.xp,
+                )
+            except Exception:
+                pass
+
+        # 3. Show login dialog again (DB stays open — no need to reconnect)
+        from src.ui.login_dialog import LoginDialog
+        login = LoginDialog(self._db)
+        self.hide()
+        if login.exec() != LoginDialog.DialogCode.Accepted or login.user_row is None:
+            # User closed login → exit app
+            from PyQt6.QtWidgets import QApplication
+            QApplication.quit()
+            return
+
+        # 4. Reset state for new user session
+        from src.portfolio.portfolio import PortfolioState
+        new_window = MainWindow(
+            PortfolioState(),
+            db=self._db,
+            user_id=login.user_row.id,
+            username=login.user_row.username,
+            session_id=login.session_id,
+        )
+        new_window.show()
+        self._is_logging_out = True
+        self.close()
+
+    # ── Window close — persist session to DB ──────────────────────────────────
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        is_logout = getattr(self, "_is_logging_out", False)
+        if self._db and self._user_id and self._session_id:
+            try:
+                self._db.end_session(
+                    session_id=self._session_id,
+                    final_value=self.state.portfolio_value,
+                    total_pnl=self.state.total_pnl,
+                    trade_count=len(self.state.trade_history),
+                    xp_earned=self._ls.xp,
+                )
+                if not is_logout:
+                    self._db.close()
+            except Exception:
+                pass
+        super().closeEvent(event)
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
